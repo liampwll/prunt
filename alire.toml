@@ -1,0 +1,9 @@
+name = "prunt"
+description = "Shiny new project"
+version = "0.1.0-dev"
+
+authors = ["Liam Powell"]
+maintainers = ["Liam Powell <liam@liampll.com>"]
+maintainers-logins = ["liampwll"]
+
+executables = ["prunt"]
