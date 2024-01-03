@@ -11,7 +11,7 @@ procedure Prunt is
       Snap_Limit             => 100_000.0 * mm / s**4,
       Crackle_Limit          => 1_000_000.0 * mm / s**5,
       Limit_Scaler           => [others => 1.0],
-      Chord_Error_Limit      => 1.0 * mm,
+      Chord_Error_Limit      => 0.01 * mm,
       Initial_Position       => [others => 0.0 * mm],
       E_Distance_Per_Step    => 0.01 * mm,
       Z_Distance_Per_Step    => 0.01 * mm,

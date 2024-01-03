@@ -1,7 +1,7 @@
-private package Motion.Step_Splitter is
+private package Motion.Curve_Splitter is
 
    task Runner is
       entry Init (In_Config : Config_Parameters);
    end Runner;
 
-end Motion.Step_Splitter;
+end Motion.Curve_Splitter;

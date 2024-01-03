@@ -37,18 +37,15 @@ private
      (None_Stage,
       Preprocessor_Stage,
       Curvifier_Stage,
-      Step_Splitter_Stage,
+      Curve_Splitter_Stage,
       Kinematic_Limiter_Stage,
       Acceleration_Profile_Generator_Stage,
       --  TODO: Replace with step generation.
       Logger_Stage);
 
-   type Corners_Index is range 0 .. 2**8 - 1;
+   type Corners_Index is range 0 .. 2_000;
 
    --  Preprocessor
-
-   --  Approximate distance between corners in steps. This is used so we can have a bounded max buffer size.
-   Max_Corner_Distance : constant := 100_000;
 
    type Block_Plain_Corners is array (Corners_Index range <>) of Scaled_Position;
    type Block_Segment_Velocity_Limits is array (Corners_Index range <>) of Velocity;
@@ -63,31 +60,13 @@ private
    type Block_Beziers is array (Corners_Index range <>) of Bezier;
    type Block_Inverse_Curvatures is array (Corners_Index range <>) of Length;
 
-   --  Step_Splitter
+   --  Curve_Splitter
 
-   --  TODO: Work out the worst case for this value.
-   Max_Steps_Per_Segment : constant := 4 * Max_Corner_Distance;
+   Curve_Points_Per_Side : constant := 1_000;
+   type Curve_Point_Set_Index is range -Curve_Points_Per_Side .. Curve_Points_Per_Side;
+   type Curve_Point_Set is array (Curve_Point_Set_Index) of Scaled_Position;
 
-   type Motor_Name is (A_Or_X_Motor, B_Or_Y_Motor, E_Motor, Z_Motor);
-   type Motor_Direction is (Forward, Backward);
-
-   type Step is record
-      Motor              : Motor_Name;
-      Direction          : Motor_Direction;
-      --  The distance measured here is the straight-line distances between points on the curve where a step was
-      --  generated. This seems to be a good compromise between the real length of the curve and the Manhattan distance
-      --  of the actual steps.
-      Distance_From_Last : Length;
-   end record;
-
-   type Step_Segment_Steps_Index is range 0 .. Max_Steps_Per_Segment;
-   type Step_Segment_Steps is array (Step_Segment_Steps_Index range <>) of Step;
-
-   type Step_Segment (N_Steps : Step_Segment_Steps_Index := 0) is record
-      Steps : Step_Segment_Steps (1 .. N_Steps);
-   end record;
-
-   type Block_Step_Segments is array (Corners_Index range <>) of Step_Segment;
+   type Block_Curve_Point_Sets is array (Corners_Index range <>) of Curve_Point_Set;
 
    --  Kinematic_Limiter
 
@@ -95,75 +74,67 @@ private
 
    --  Acceleration_Profile_Generator
 
-   type Step_Time_Deltas_Times is array (Step_Segment_Steps_Index range <>) of Time;
+   type Acceleration_Profile_Times_Index is range 1 .. 4;
+   type Acceleration_Profile_Times is array (Acceleration_Profile_Times_Index) of Time;
 
-   type Step_Time_Deltas_Segment (N_Steps : Step_Segment_Steps_Index := 0) is record
-      Times : Step_Segment_Steps (1 .. N_Steps);
+   type Segment_Acceleration_Profile is record
+      Accel : Acceleration_Profile_Times;
+      Coast : Time;
+      Decel : Acceleration_Profile_Times;
    end record;
 
-   type Block_Step_Time_Deltas_Segments is array (Corners_Index range <>) of Step_Time_Deltas_Segment;
+   type Block_Segment_Acceleration_Profiles is array (Corners_Index range <>) of Segment_Acceleration_Profile;
 
    --  End of pipeline stage types.
 
-   --!pp off
-   type Block_Data (Last_Stage : Block_Pipeline_Stages := None_Stage; N_Corners : Corners_Index := 0) is record
-      case Last_Stage is
-         when Preprocessor_Stage .. Block_Pipeline_Stages'Last =>
-            Next_Master             : Master_Manager.Master;
-            Corners                 : Block_Plain_Corners (1 .. N_Corners);
-            Segment_Velocity_Limits : Block_Segment_Velocity_Limits (2 .. N_Corners);
+   type Block_Data (N_Corners : Corners_Index := 0) is record
+      Last_Stage : Block_Pipeline_Stages := None_Stage;
 
-      case Last_Stage is
-         when Curvifier_Stage .. Block_Pipeline_Stages'Last =>
-            Beziers            : Block_Beziers (1 .. N_Corners);
-            Inverse_Curvatures : Block_Inverse_Curvatures (1 .. N_Corners);
+      --  TODO: Having all these fields accessible before the relevant stage is called is not ideal, but using a
+      --  discriminated type causes a stack overflow when trying to change the discriminant without making a copy as
+      --  GCC tries to copy the whole thing to the stack. In the future we could possibly use SPARK to ensure stages do
+      --  not touch fields that are not yet assigned.
 
-      case Last_Stage is
-         when Step_Splitter_Stage .. Block_Pipeline_Stages'Last =>
-            Step_Segments : Block_Step_Segments (2 .. N_Corners);
+      --  Preprocessor
+      Next_Master             : Master_Manager.Master;
+      Corners                 : Block_Plain_Corners (1 .. N_Corners);
+      Segment_Velocity_Limits : Block_Segment_Velocity_Limits (2 .. N_Corners);
 
-      case Last_Stage is
-         when Kinematic_Limiter_Stage .. Block_Pipeline_Stages'Last =>
-            Corner_Velocity_Limits : Block_Corner_Velocity_Limits (2 .. N_Corners);
+      --  Curvifier
+      Beziers            : Block_Beziers (1 .. N_Corners);
+      Inverse_Curvatures : Block_Inverse_Curvatures (1 .. N_Corners);
 
-      case Last_Stage is
-         when Acceleration_Profile_Generator_Stage .. Block_Pipeline_Stages'Last =>
-            Step_Time_Deltas_Segments : Block_Step_Time_Deltas_Segments (2 .. N_Corners);
+      --  Curve_Splitter
+      Curve_Point_Sets : Block_Curve_Point_Sets (1 .. N_Corners);
 
-      case Last_Stage is
-         when Logger_Stage .. Block_Pipeline_Stages'Last =>
-            null;
+      --  Kinematic_Limiter
+      Corner_Velocity_Limits : Block_Corner_Velocity_Limits (1 .. N_Corners);
 
-         when others =>
-            null;
-      end case;
-         when others =>
-            null;
-      end case;
-         when others =>
-            null;
-      end case;
-         when others =>
-            null;
-      end case;
-         when others =>
-            null;
-      end case;
-         when others =>
-            null;
-      end case;
+      --  Acceleration_Profile_Generator
+      Segment_Acceleration_Profiles : Block_Segment_Acceleration_Profiles (2 .. N_Corners);
    end record;
-   --!pp on
 
    protected type Block is
       entry Process (Preprocessor_Stage .. Logger_Stage) (Processor : access procedure (Data : in out Block_Data));
    private
-      Data : Block_Data := (Last_Stage => None_Stage, N_Corners => 0);
+      Data : Block_Data := (Last_Stage => None_Stage, N_Corners => 0, others => <>);
    end Block;
 
-   type Block_Queues_Index is range 0 .. 3;
+   type Block_Queues_Index is range 1 .. 8;
    type Block_Queues is array (Block_Queues_Index) of Block;
    type Block_Queues_Access is access Block_Queues;
    Block_Queue : constant Block_Queues_Access := new Block_Queues;
+
+   function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position;
+
+   function Crackle_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Crackle;
+   function Snap_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Snap;
+   function Jerk_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Jerk;
+   function Acceleration_At_Time
+     (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Acceleration;
+   function Velocity_At_Time
+     (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle; Start_Vel : Velocity) return Velocity;
+   function Distance_At_Time
+     (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle; Start_Vel : Velocity) return Length;
 
 end Motion;

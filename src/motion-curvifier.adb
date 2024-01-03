@@ -6,8 +6,6 @@ package body Motion.Curvifier is
    package Elementary_Functions is new Ada.Numerics.Generic_Elementary_Functions (Dimensioned_Float);
    use Elementary_Functions;
 
-   type Control_Point_Ratio is array (1 .. 4) of Dimensionless;
-
    function Compute_Secondary_Angle (Start, Corner, Finish : Scaled_Position) return Angle is
       function Clamped_Arccos (X : Dimensionless) return Angle is
       begin
@@ -19,7 +17,7 @@ package body Motion.Curvifier is
             return Arccos (X);
          end if;
       end Clamped_Arccos;
-      
+
       V1              : constant Scaled_Position_Offset := Start - Corner;
       V2              : constant Scaled_Position_Offset := Finish - Corner;
       Dot_Product     : constant Dimensionless          := Dot (V1 / abs V1, V2 / abs V2);
@@ -83,7 +81,7 @@ package body Motion.Curvifier is
       Deviation_Limit_Numerator   : constant Length        := Max_Chord_Error * 256.0;
       Deviation_Limit_Denominator : constant Dimensionless :=
         (130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0) * Sin (Secondary_Angle);
-      
+
       --  TODO: The following 0.5 is not needed for the first move in a block.
       Incoming_Limit  : constant Length := 0.5 * Incoming_Length / (CPR_Sum + 1.0);
       --  TODO: The following 0.5 is not needed for the last move in a block.
@@ -92,7 +90,7 @@ package body Motion.Curvifier is
       if Deviation_Limit_Denominator = 0.0 then
          return 0.0 * mm;
       else
-         return Length'Min 
+         return Length'Min
            (Deviation_Limit_Numerator / Deviation_Limit_Denominator, Length'Min (Incoming_Limit, Outgoing_Limit));
       end if;
    end Compute_Bezier_Base_Length;
@@ -146,10 +144,18 @@ package body Motion.Curvifier is
    task body Runner is
       Config : Config_Parameters;
 
-      --  These are declared here rather than in the Processor procedure to avoid stack allocation.
-      Midpoints          : array (Corners_Index) of Scaled_Position;
-      Shifted_Corners    : array (Corners_Index) of Scaled_Position;
-      Chord_Error_Limits : array (Corners_Index) of Length;
+      type Midpoints_Type is array (Corners_Index) of Scaled_Position;
+      type Midpoints_Type_Access is access Midpoints_Type;
+
+      type Shifted_Corners_Type is array (Corners_Index) of Scaled_Position;
+      type Shifted_Corners_Type_Access is access Shifted_Corners_Type;
+
+      type Chord_Error_Limits_Type is array (Corners_Index) of Length;
+      type Chord_Error_Limits_Type_Access is access Chord_Error_Limits_Type;
+
+      Midpoints          : constant Midpoints_Type_Access          := new Midpoints_Type;
+      Shifted_Corners    : constant Shifted_Corners_Type_Access    := new Shifted_Corners_Type;
+      Chord_Error_Limits : constant Chord_Error_Limits_Type_Access := new Chord_Error_Limits_Type;
 
       procedure Processor (Data : in out Block_Data) is
          Max_Computational_Error : Length;
@@ -192,19 +198,7 @@ package body Motion.Curvifier is
             end loop;
          end loop;
 
-         Data :=
-            (Last_Stage              => Curvifier_Stage,
-            N_Corners               => Data.N_Corners,
-            Next_Master             => Data.Next_Master,
-            Corners                 => Data.Corners,
-            Segment_Velocity_Limits => Data.Segment_Velocity_Limits,
-            Beziers                 => [others => <>],
-            Inverse_Curvatures      => [others => <>]);
-
          for I in Data.Beziers'First + 1 .. Data.Beziers'Last - 1 loop
-            -- Put_Line (Scaled_Position'Image (Midpoints (I)));
-            -- Put_Line (Scaled_Position'Image (Data.Corners (I)));
-            -- Put_Line ("============");
             Data.Beziers (I) :=
                Compute_Control_Points
                   (Shifted_Corners (I - 1), Shifted_Corners (I), Shifted_Corners (I + 1), Chord_Error_Limits (I));

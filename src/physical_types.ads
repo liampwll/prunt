@@ -44,6 +44,15 @@ package Physical_Types is
    subtype Area is Dimensioned_Float with
        Dimension => (Symbol => "mm²", Millimeter => 2, others => 0);
 
+   subtype Curvature is Dimensioned_Float with
+       Dimension => (Symbol => "mm⁻¹", Millimeter => -1, others => 0);
+   subtype Curvature_To_2 is Dimensioned_Float with
+       Dimension => (Symbol => "mm⁻²", Millimeter => -2, others => 0);
+   subtype Curvature_To_3 is Dimensioned_Float with
+       Dimension => (Symbol => "mm⁻³", Millimeter => -3, others => 0);
+   subtype Curvature_To_4 is Dimensioned_Float with
+       Dimension => (Symbol => "mm⁻⁴", Millimeter => -4, others => 0);
+
    type Axis_Name is (X_Axis, Y_Axis, Z_Axis, E_Axis);
 
    type Position is array (Axis_Name) of Length;
