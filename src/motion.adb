@@ -69,6 +69,10 @@ package body Motion is
 
    type Acceleration_Profile_Stage_Index is range 1 .. 15;
 
+   --  The recursive nature of these functions is significantly more inefficient than directly computing the value at
+   --  each stage. However, this method avoids any discontinuity due to floating point errors. Whether this matters in
+   --  practice has not been analysed.
+
    function Crackle_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Crackle is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
