@@ -44,56 +44,90 @@ package body Motion.Kinematic_Limiter is
       --!pp off
       function Optimal_Accel_For_Distance (Start_Vel : Velocity; Distance : Length) return Acceleration_Profile_Times
       is
-         D      : constant Length       := Distance;
-         Vs     : constant Velocity     := Start_Vel;
-         Am     : constant Acceleration := Config.Acceleration_Limit;
-         Jm     : constant Jerk         := Config.Jerk_Limit;
-         Sm     : constant Snap         := Config.Snap_Limit;
-         Cm     : constant Crackle      := Config.Crackle_Limit;
+         D     : constant Length       := Distance;
+         Vs    : constant Velocity     := Start_Vel;
+         Am    : constant Acceleration := Config.Acceleration_Limit;
+         Jm    : constant Jerk         := Config.Jerk_Limit;
+         Sm    : constant Snap         := Config.Snap_Limit;
+         Cm    : constant Crackle      := Config.Crackle_Limit;
+         Cases : array (Acceleration_Profile_Times_Index) of Acceleration_Profile_Times;
       begin
          if Sm**2 < Jm * Cm then
             if Am >= Jm * (Jm / Sm + Sm / Cm) then
-               if D > Distance_At_Time (Sm / Cm, [Sm / Cm, Jm / Sm - Sm / Cm, Am / Jm - Jm / Sm - Sm / Cm, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([Sm / Cm, Jm / Sm - Sm / Cm, Am / Jm - Jm / Sm - Sm / Cm, 0.0 * s], Vs, 4, D);
-               elsif D > Distance_At_Time (Sm / Cm, [Sm / Cm, Jm / Sm - Sm / Cm, 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([Sm / Cm, Jm / Sm - Sm / Cm, 0.0 * s, 0.0 * s], Vs, 3, D);
-               elsif D > Distance_At_Time (Sm / Cm, [Sm / Cm, 0.0 * s, 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([Sm / Cm, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 2, D);
-               else
-                  return Solve_Distance_At_Time ([0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 1, D);
-               end if;
+               Cases :=
+                 [
+                  --  Reachable: Sm, Jm, Am
+                  4 => [Sm / Cm, Jm / Sm - Sm / Cm, Am / Jm - Jm / Sm - Sm / Cm, 0.0 * s],
+                  --  Reachable: Sm, Jm
+                  3 => [Sm / Cm, Jm / Sm - Sm / Cm, 0.0 * s, 0.0 * s],
+                  --  Reachable: Sm
+                  2 => [Sm / Cm, 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Reachable: None
+                  1 => [0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s]
+                 ];
             elsif Am >= 2.0 * Sm**3 / Cm**2 then
-               if D > Distance_At_Time (Sm / Cm, [Sm / Cm, (Sm**2 / (4.0 * Cm**2) + Am / Sm)**(1 / 2) - (3.0 * Sm) / (2.0 * Cm), 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([Sm / Cm, (Sm**2 / (4.0 * Cm**2) + Am / Sm)**(1 / 2) - (3.0 * Sm) / (2.0 * Cm), 0.0 * s, 0.0 * s], Vs, 4, D);
-               elsif D > Distance_At_Time (Sm / Cm, [Sm / Cm, 0.0 * s, 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([Sm / Cm, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 2, D);
-               else
-                  return Solve_Distance_At_Time ([0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 1, D);
-               end if;
+               Cases :=
+                 [
+                  --  Reachable: Sm, Am
+                  4 => [Sm / Cm, (Sm**2 / (4.0 * Cm**2) + Am / Sm)**(1 / 2) - (3.0 * Sm) / (2.0 * Cm), 0.0 * s, 0.0 * s],
+                  --  Impossible case.
+                  3 => [Sm / Cm, (Sm**2 / (4.0 * Cm**2) + Am / Sm)**(1 / 2) - (3.0 * Sm) / (2.0 * Cm), 0.0 * s, 0.0 * s],
+                  --  Reachable: Sm
+                  2 => [Sm / Cm, 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Reachable: None
+                  1 => [0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s]
+                 ];
             else
-               if D > Distance_At_Time ([Am / (2.0 * Cm))**(1 / 3), [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s], Vs, 4, D);
-               else
-                  return Solve_Distance_At_Time ([0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 1, D);
-               end if;
+               Cases :=
+                 [
+                  --  Reachable: Am
+                  4 => [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Impossible case.
+                  3 => [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Impossible case.
+                  2 => [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Reachable: None
+                  1 => [0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s]
+                 ];
             end if;
          else
             if Am > 2.0 * Jm * (Jm / Cm)**(1 / 2) then
-               if D > Distance_At_Time ([Jm / Cm)**(1 / 2), [(Jm / Cm)**(1 / 2), 0.0 * s, Am / Jm - 2.0 * (Jm / Cm)**(1 / 2), 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([(Jm / Cm)**(1 / 2), 0.0 * s, Am / Jm - 2.0 * (Jm / Cm)**(1 / 2), 0.0 * s], Vs, 4, D);
-               elsif D > Distance_At_Time ((Jm / Cm)**(1 / 2), [(Jm / Cm)**(1 / 2), 0.0 * s, 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([(Jm / Cm)**(1 / 2), 0.0 * s, 0.0 * s, 0.0 * s], Vs, 3, D);
-               else
-                  return Solve_Distance_At_Time ([0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 1, D);
-               end if;
+               Cases :=
+                 [
+                  --  Reachable: Jm, Am
+                  4 => [(Jm / Cm)**(1 / 2), 0.0 * s, Am / Jm - 2.0 * (Jm / Cm)**(1 / 2), 0.0 * s],
+                  --  Reachable: Jm
+                  3 => [(Jm / Cm)**(1 / 2), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Impossible case.
+                  2 => [(Jm / Cm)**(1 / 2), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Reachable: None
+                  1 => [0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s]
+                 ];
             else
-               if D > Distance_At_Time ((Am / (2.0 * Cm))**(1 / 3), [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s], Cm, Vs) then
-                  return Solve_Distance_At_Time ([(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s], Vs, 4, D);
-               else
-                  return Solve_Distance_At_Time ([0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s], Vs, 1, D);
-               end if;
+               Cases :=
+                 [
+                  --  Reachable: Am
+                  4 => [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Impossible case.
+                  3 => [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Impossible case.
+                  2 => [(Am / (2.0 * Cm))**(1 / 3), 0.0 * s, 0.0 * s, 0.0 * s],
+                  --  Reachable: None
+                  1 => [0.0 * s, 0.0 * s, 0.0 * s, 0.0 * s]
+                 ];
             end if;
          end if;
+
+         for I in reverse Cases'Range loop
+            if I = Cases'First or
+              D > Distance_At_Time (Cases (I) (Acceleration_Profile_Times_Index'First), Cases (I), Cm, Vs)
+            then
+               return Solve_Distance_At_Time (Cases (I), Vs, I, D);
+            end if;
+         end loop;
+
+         --  Unreachable.
+         raise Program_Error;
       end Optimal_Accel_For_Distance;
       --!pp on
 
