@@ -127,6 +127,8 @@ private
 
    function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position;
 
+   function Curve_Corner_Distance (Start, Finish : Curve_Point_Set) return Length;
+
    function Crackle_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Crackle;
    function Snap_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Snap;
    function Jerk_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Jerk;

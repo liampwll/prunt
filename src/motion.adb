@@ -67,6 +67,20 @@ package body Motion is
       return Recur ([for I in Bezier_Index => Bez (I)]);
    end Compute_Bezier_Point;
 
+   function Curve_Corner_Distance (Start, Finish : Curve_Point_Set) return Length is
+      Sum : Length := abs (Start (Start'Last) - Finish (Finish'First));
+   begin
+      for I in 0 .. Start'Last - 1 loop
+         Sum := Sum + abs (Start (I) - Start (I + 1));
+      end loop;
+
+      for I in Finish'First + 1 .. 0 loop
+         Sum := Sum + abs (Finish (I - 1) - Finish (I));
+      end loop;
+
+      return Sum;
+   end Curve_Corner_Distance;
+
    type Acceleration_Profile_Stage_Index is range 1 .. 15;
 
    --  The recursive nature of these functions is significantly more inefficient than directly computing the value at
