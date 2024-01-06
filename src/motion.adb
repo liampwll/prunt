@@ -32,19 +32,27 @@ package body Motion is
 
    protected body Block is
 
-      entry Process
-        (for Stage in Preprocessor_Stage .. Logger_Stage) (Processor : access procedure (Data : in out Block_Data))
+      entry Wait (for Stage in Preprocessor_Stage .. Logger_Stage)
         when Block_Pipeline_Stages'Pred (Stage) = Data.Last_Stage
       is
       begin
+         null;
+      end Wait;
+
+      procedure Process (Stage : Block_Pipeline_Stages; Processor : access procedure (Data : in out Block_Data))
+      is
+      begin
+         if Block_Pipeline_Stages'Pred (Stage) /= Data.Last_Stage then
+            raise Program_Error;
+         end if;
          Processor (Data);
          Data.Last_Stage := Stage;
       exception
          when E : others =>
             Put_Line ("Exception in motion pipeline:");
             Put_Line (Ada.Exceptions.Exception_Information (E));
-            Put_Line ("Terminating task " & Ada.Task_Identification.Image (Process'Caller));
-            Ada.Task_Identification.Abort_Task (Process'Caller);
+            Put_Line ("Terminating task " & Ada.Task_Identification.Image (Ada.Task_Identification.Current_Task));
+            Ada.Task_Identification.Abort_Task (Ada.Task_Identification.Current_Task);
       end Process;
 
    end Block;

@@ -1,5 +1,4 @@
 with Ada.Unchecked_Conversion;
-with Ada.Text_IO; use Ada.Text_IO;
 
 package body Motion.Kinematic_Limiter is
 
@@ -161,7 +160,6 @@ package body Motion.Kinematic_Limiter is
                Limit           : Velocity := Config.Velocity_Limit;
                Optimal_Profile : Acceleration_Profile_Times;
             begin
-               Put_Line (Corners_Index'Image (I));
                Limit := Velocity'Min (Limit, Data.Segment_Velocity_Limits (I));
                Limit := Velocity'Min (Limit, Data.Segment_Velocity_Limits (I + 1));
                --  Inverse curvature range is 0..Length'Last, make sure to avoid overflow here.
@@ -222,7 +220,8 @@ package body Motion.Kinematic_Limiter is
 
       loop
          for Block_Index in Block_Queues_Index loop
-            Block_Queue (Block_Index).Process (Kinematic_Limiter_Stage) (Processor'Access);
+            Block_Queue (Block_Index).Wait (Kinematic_Limiter_Stage);
+            Block_Queue (Block_Index).Process (Kinematic_Limiter_Stage, Processor'Access);
          end loop;
       end loop;
    end Runner;

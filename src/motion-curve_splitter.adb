@@ -26,7 +26,8 @@ package body Motion.Curve_Splitter is
 
       loop
          for Block_Index in Block_Queues_Index loop
-            Block_Queue (Block_Index).Process (Curve_Splitter_Stage) (Processor'Access);
+            Block_Queue (Block_Index).Wait (Curve_Splitter_Stage);
+            Block_Queue (Block_Index).Process (Curve_Splitter_Stage, Processor'Access);
          end loop;
       end loop;
    end Runner;

@@ -115,7 +115,8 @@ private
    end record;
 
    protected type Block is
-      entry Process (Preprocessor_Stage .. Logger_Stage) (Processor : access procedure (Data : in out Block_Data));
+      entry Wait (Preprocessor_Stage .. Logger_Stage);
+      procedure Process (Stage : Block_Pipeline_Stages; Processor : access procedure (Data : in out Block_Data));
    private
       Data : Block_Data := (Last_Stage => None_Stage, N_Corners => 0, others => <>);
    end Block;

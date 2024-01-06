@@ -7,8 +7,8 @@ procedure Prunt is
      (Kinematics             => Motion.Cartesian_Kind,
       Velocity_Limit         => 100.0 * mm / s,
       Acceleration_Limit     => 1_000.0 * mm / s**2,
-      Jerk_Limit             => 10_000.0 * mm / s**3,
-      Snap_Limit             => 100_000.0 * mm / s**4,
+      Jerk_Limit             => 1_100.0 * mm / s**3,
+      Snap_Limit             => 1_200.0 * mm / s**4,
       Crackle_Limit          => 1_000_000.0 * mm / s**5,
       Limit_Scaler           => [others => 1.0],
       Chord_Error_Limit      => 0.01 * mm,
@@ -19,15 +19,21 @@ procedure Prunt is
       Y_Distance_Per_Step    => 0.01 * mm);
 begin
    Motion.Init (Motion_Config);
-   -- Motion.Enqueue ([others => 10.0 * mm], 1.0 * mm / s);
-   -- Motion.Enqueue ([X_Axis => 0.0 * mm, others => 20.0 * mm], 5.0 * mm / s);
-   -- Motion.Enqueue ([others => 40.0 * mm], 1.0 * mm / s);
-   -- Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
-   -- Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
-   -- Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
-   -- Motion.Enqueue ([others => 40.0 * mm], 1.0 * mm / s);
-   -- Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
-   
+   --  Motion.Enqueue ([others => 10.0 * mm], 1.0 * mm / s);
+   --  Motion.Enqueue ([X_Axis => 0.0 * mm, others => 20.0 * mm], 5.0 * mm / s);
+   --  Motion.Enqueue ([others => 40.0 * mm], 1.0 * mm / s);
+   --  Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
+   --  Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
+   --  Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
+   --  Motion.Enqueue ([others => 40.0 * mm], 1.0 * mm / s);
+   --  Motion.Enqueue ([others => 50.0 * mm], 1.0 * mm / s);
+   Motion.Enqueue ([X_Axis => 30.713 * mm, Y_Axis => 48.944 * mm, others => 0.0 * mm], 10.0 * mm / s);
+   Motion.Flush (Master_Manager.Motion_Master);
+   Motion.Flush (Master_Manager.Motion_Master);
+   Motion.Enqueue ([X_Axis => 56.634 * mm, Y_Axis => 47.570 * mm, others => 0.0 * mm], 10.0 * mm / s);
+   Motion.Enqueue ([X_Axis => 57.451 * mm, Y_Axis => 47.685 * mm, others => 0.0 * mm], 10.0 * mm / s);
+   Motion.Flush (Master_Manager.Motion_Master);
+
    Motion.Enqueue ([X_Axis => 30.251 * mm, Y_Axis => 49.101 * mm, others => 0.0 * mm], 10.0 * mm / s);
    Motion.Enqueue ([X_Axis => 30.394 * mm, Y_Axis => 49.027 * mm, others => 0.0 * mm], 10.0 * mm / s);
    Motion.Enqueue ([X_Axis => 30.713 * mm, Y_Axis => 48.944 * mm, others => 0.0 * mm], 10.0 * mm / s);

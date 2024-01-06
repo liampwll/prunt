@@ -47,6 +47,7 @@ package body Motion.Preprocessor is
             Queued_Corners.Clear;
             Queued_Velocities.Clear;
             Queued_Corners.Append (Current_Corner);
+            Force_Early_End := False;
 
             while not Force_Early_End and Queued_Corners.Length /= Queued_Corners.Capacity loop
                select
@@ -76,7 +77,8 @@ package body Motion.Preprocessor is
                end select;
             end loop;
 
-            Block_Queue (Block_Index).Process (Preprocessor_Stage) (Processor'Access);
+            Block_Queue (Block_Index).Wait (Preprocessor_Stage);
+            Block_Queue (Block_Index).Process (Preprocessor_Stage, Processor'Access);
          end loop;
       end loop;
    end Runner;

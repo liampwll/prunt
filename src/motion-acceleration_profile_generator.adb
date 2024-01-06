@@ -1,9 +1,24 @@
 with Ada.Unchecked_Conversion;
+with Ada.Text_IO; use Ada.Text_IO;
 
 package body Motion.Acceleration_Profile_Generator is
 
    task body Runner is
       Config : Config_Parameters;
+
+      --  This is just a simplified version of Distance_At_Time where T = T1.
+      function Fast_Distance_At_Time (Profile : Acceleration_Profile_Times; Start_Vel : Velocity) return Length is
+         T1 : constant Time     := Profile (1);
+         T2 : constant Time     := Profile (2);
+         T3 : constant Time     := Profile (3);
+         T4 : constant Time     := Profile (4);
+         Cm : constant Crackle  := Config.Crackle_Limit;
+         Vs : constant Velocity := Start_Vel;
+      begin
+         return
+           (Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4) / 2.0) *
+           (8.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4);
+      end Fast_Distance_At_Time;
 
       --  This is just a simplified version of Velocity_At_Time where T = T1 and Vs = 0.
       function Fast_Velocity_At_Time (Profile : Acceleration_Profile_Times) return Velocity is
@@ -145,7 +160,70 @@ package body Motion.Acceleration_Profile_Generator is
          Data.Corner_Velocity_Limits (Data.Corner_Velocity_Limits'Last)  := 0.0 * mm / s;
 
          for I in Data.Segment_Acceleration_Profiles'Range loop
-            null;
+            Data.Segment_Acceleration_Profiles (I).Accel :=
+              Optimal_Accel_For_Delta_V (Data.Corner_Velocity_Limits (I - 1) - Data.Segment_Velocity_Limits (I));
+            Data.Segment_Acceleration_Profiles (I).Decel :=
+              Optimal_Accel_For_Delta_V (Data.Corner_Velocity_Limits (I) - Data.Segment_Velocity_Limits (I));
+            declare
+               Accel_Distance  : Length          :=
+                 Fast_Distance_At_Time
+                   (Data.Segment_Acceleration_Profiles (I).Accel, Data.Corner_Velocity_Limits (I - 1));
+               Decel_Distance  : Length          :=
+                 Fast_Distance_At_Time (Data.Segment_Acceleration_Profiles (I).Decel, Data.Corner_Velocity_Limits (I));
+               Corner_Distance : constant Length :=
+                 Curve_Corner_Distance (Data.Curve_Point_Sets (I - 1), Data.Curve_Point_Sets (I));
+            begin
+               if Accel_Distance + Decel_Distance <= Corner_Distance then
+                  Data.Segment_Acceleration_Profiles (I).Coast :=
+                    (Corner_Distance - Accel_Distance - Decel_Distance) / Data.Segment_Velocity_Limits (I);
+               else
+                  Data.Segment_Acceleration_Profiles (I).Coast := 0.0 * s;
+                  declare
+                     type Casted_Vel is mod 2**64;
+                     function Cast_Vel is new Ada.Unchecked_Conversion (Velocity, Casted_Vel);
+                     function Cast_Vel is new Ada.Unchecked_Conversion (Casted_Vel, Velocity);
+                     Bound_A : Velocity := Data.Segment_Velocity_Limits (I);
+                     Bound_B : Velocity := Data.Corner_Velocity_Limits (I);
+                     Mid     : Velocity := Cast_Vel ((Cast_Vel (Bound_A) + Cast_Vel (Bound_B)) / 2);
+                  begin
+                     --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to
+                     --  check that here.
+                     pragma Assert (Velocity'Size = 64);
+                     pragma Assert (Casted_Vel'Size = 64);
+                     pragma Assert (Cast_Vel (86_400.0 * mm / s) = 4_680_673_776_000_565_248);
+                     pragma Assert (Cast_Vel (0.123_45 * mm / s) = 4_593_559_930_647_147_132);
+
+                     loop
+                        Mid := Cast_Vel ((Cast_Vel (Bound_A) + Cast_Vel (Bound_B)) / 2);
+                        exit when Bound_A = Mid or Bound_B = Mid;
+
+                        Data.Segment_Acceleration_Profiles (I).Accel :=
+                          Optimal_Accel_For_Delta_V
+                            (Data.Corner_Velocity_Limits (I - 1) - Data.Segment_Velocity_Limits (I));
+                        Data.Segment_Acceleration_Profiles (I).Decel :=
+                          Optimal_Accel_For_Delta_V
+                            (Data.Corner_Velocity_Limits (I) - Data.Segment_Velocity_Limits (I));
+
+                        Accel_Distance :=
+                          Fast_Distance_At_Time
+                            (Data.Segment_Acceleration_Profiles (I).Accel, Data.Corner_Velocity_Limits (I - 1));
+                        Decel_Distance :=
+                          Fast_Distance_At_Time
+                            (Data.Segment_Acceleration_Profiles (I).Decel, Data.Corner_Velocity_Limits (I));
+
+                        if Accel_Distance + Decel_Distance <= Corner_Distance then
+                           Bound_A := Velocity'Max (Bound_A, Bound_B);
+                           Bound_B := Mid;
+                        else
+                           Bound_A := Velocity'Min (Bound_A, Bound_B);
+                           Bound_B := Mid;
+                        end if;
+                     end loop;
+                  end;
+               end if;
+            end;
+
+            Put_Line (Segment_Acceleration_Profile'Image (Data.Segment_Acceleration_Profiles (I)));
          end loop;
       end Processor;
 
@@ -156,7 +234,8 @@ package body Motion.Acceleration_Profile_Generator is
 
       loop
          for Block_Index in Block_Queues_Index loop
-            Block_Queue (Block_Index).Process (Acceleration_Profile_Generator_Stage) (Processor'Access);
+            Block_Queue (Block_Index).Wait (Acceleration_Profile_Generator_Stage);
+            Block_Queue (Block_Index).Process (Acceleration_Profile_Generator_Stage, Processor'Access);
          end loop;
       end loop;
    end Runner;

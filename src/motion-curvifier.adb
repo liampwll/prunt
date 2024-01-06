@@ -219,7 +219,8 @@ package body Motion.Curvifier is
 
       loop
          for Block_Index in Block_Queues_Index loop
-            Block_Queue (Block_Index).Process (Curvifier_Stage) (Processor'Access);
+            Block_Queue (Block_Index).Wait (Curvifier_Stage);
+            Block_Queue (Block_Index).Process (Curvifier_Stage, Processor'Access);
          end loop;
       end loop;
    end Runner;
