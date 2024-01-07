@@ -1,11 +1,11 @@
 with Ada.Unchecked_Conversion;
+with Ada.Text_IO; use Ada.Text_IO;
 
 package body Motion.Kinematic_Limiter is
 
    task body Runner is
       Config : Config_Parameters;
 
-      --  This is just a simplified version of Distance_At_Time where T = T1.
       function Fast_Distance_At_Time (Profile : Acceleration_Profile_Times; Start_Vel : Velocity) return Length is
          T1 : constant Time     := Profile (1);
          T2 : constant Time     := Profile (2);
@@ -18,6 +18,17 @@ package body Motion.Kinematic_Limiter is
            (Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4) / 2.0) *
            (8.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4);
       end Fast_Distance_At_Time;
+
+      function Fast_Velocity_At_Time (Profile : Acceleration_Profile_Times; Start_Vel : Velocity) return Velocity is
+         T1 : constant Time     := Profile (1);
+         T2 : constant Time     := Profile (2);
+         T3 : constant Time     := Profile (3);
+         T4 : constant Time     := Profile (4);
+         Cm : constant Crackle  := Config.Crackle_Limit;
+         Vs : constant Velocity := Start_Vel;
+      begin
+         return Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4);
+      end Fast_Velocity_At_Time;
 
       function Solve_Distance_At_Time
         (Profile   : Acceleration_Profile_Times;
@@ -135,7 +146,7 @@ package body Motion.Kinematic_Limiter is
 
          for I in reverse Cases'Range loop
             if I = Cases'First or
-              D > Distance_At_Time (Cases (I) (Acceleration_Profile_Times_Index'First), Cases (I), Cm, Vs)
+              D > Fast_Distance_At_Time (Cases (I), Vs)
             then
                --  There are simple analytical solutions for a lot of these, but this is already fast so there is no
                --  reason to optimise it.
@@ -182,15 +193,9 @@ package body Motion.Kinematic_Limiter is
                    (Data.Corner_Velocity_Limits (I - 1),
                     Curve_Corner_Distance (Data.Curve_Point_Sets (I - 1), Data.Curve_Point_Sets (I)));
                Limit           :=
-                 Velocity'Min
-                   (Limit,
-                    Velocity_At_Time
-                      (Optimal_Profile (Acceleration_Profile_Times'First),
-                       Optimal_Profile,
-                       Config.Crackle_Limit,
-                       Data.Corner_Velocity_Limits (I - 1)));
+                 Velocity'Min (Limit, Fast_Velocity_At_Time (Optimal_Profile, Data.Corner_Velocity_Limits (I - 1)));
 
-               Data.Corner_Velocity_Limits (I) := Limit;
+               Data.Corner_Velocity_Limits (I) := Limit * 0.3;
             end;
          end loop;
 
@@ -200,16 +205,12 @@ package body Motion.Kinematic_Limiter is
             begin
                Optimal_Profile                 :=
                  Optimal_Accel_For_Distance
-                   (Data.Corner_Velocity_Limits (I + 1),
+                   (Data.Corner_Velocity_Limits (I),
                     Curve_Corner_Distance (Data.Curve_Point_Sets (I), Data.Curve_Point_Sets (I + 1)));
                Data.Corner_Velocity_Limits (I) :=
                  Velocity'Min
                    (Data.Corner_Velocity_Limits (I),
-                    Velocity_At_Time
-                      (Optimal_Profile (Acceleration_Profile_Times'First),
-                       Optimal_Profile,
-                       Config.Crackle_Limit,
-                       Data.Corner_Velocity_Limits (I - 1)));
+                    Fast_Velocity_At_Time (Optimal_Profile, Data.Corner_Velocity_Limits (I + 1)) * 0.3);
             end;
          end loop;
       end Processor;

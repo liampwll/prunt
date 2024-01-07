@@ -46,7 +46,11 @@ package body Motion is
             raise Program_Error;
          end if;
          Processor (Data);
-         Data.Last_Stage := Stage;
+         if Stage = Logger_Stage then
+            Data.Last_Stage := None_Stage;
+         else
+            Data.Last_Stage := Stage;
+         end if;
       exception
          when E : others =>
             Put_Line ("Exception in motion pipeline:");
@@ -76,7 +80,7 @@ package body Motion is
    end Compute_Bezier_Point;
 
    function Curve_Corner_Distance (Start, Finish : Curve_Point_Set) return Length is
-      Sum : Length := abs (Start (Start'Last) - Finish (Finish'First));
+      Sum : Length := 0.0 * mm;
    begin
       for I in 0 .. Start'Last - 1 loop
          Sum := Sum + abs (Start (I) - Start (I + 1));
@@ -86,7 +90,7 @@ package body Motion is
          Sum := Sum + abs (Finish (I - 1) - Finish (I));
       end loop;
 
-      return Sum;
+      return Sum + abs (Start (Start'Last) - Finish (Finish'First));
    end Curve_Corner_Distance;
 
    type Acceleration_Profile_Stage_Index is range 1 .. 15;
@@ -150,31 +154,31 @@ package body Motion is
             when 2 =>
                return Snap_At_Stage (T1, 1);
             when 3 =>
-               return Snap_At_Stage (T1 + T2, 2) - Cm * DT;
+               return Snap_At_Stage (T2, 2) - Cm * DT;
             when 4 =>
-               return Snap_At_Stage (2.0 * T1 + T2, 3);
+               return Snap_At_Stage (T1, 3);
             when 5 =>
-               return Snap_At_Stage (2.0 * T1 + T2 + T3, 4) - Cm * DT;
+               return Snap_At_Stage (T3, 4) - Cm * DT;
             when 6 =>
-               return Snap_At_Stage (3.0 * T1 + T2 + T3, 5);
+               return Snap_At_Stage (T1, 5);
             when 7 =>
-               return Snap_At_Stage (3.0 * T1 + 2.0 * T2 + T3, 6) + Cm * DT;
+               return Snap_At_Stage (T2, 6) + Cm * DT;
             when 8 =>
-               return Snap_At_Stage (4.0 * T1 + 2.0 * T2 + T3, 7);
+               return Snap_At_Stage (T1, 7);
             when 9 =>
-               return Snap_At_Stage (4.0 * T1 + 2.0 * T2 + T3 + T4, 8) - Cm * DT;
+               return Snap_At_Stage (T4, 8) - Cm * DT;
             when 10 =>
-               return Snap_At_Stage (5.0 * T1 + 2.0 * T2 + T3 + T4, 9);
+               return Snap_At_Stage (T1, 9);
             when 11 =>
-               return Snap_At_Stage (5.0 * T1 + 3.0 * T2 + T3 + T4, 10) + Cm * DT;
+               return Snap_At_Stage (T2, 10) + Cm * DT;
             when 12 =>
-               return Snap_At_Stage (6.0 * T1 + 3.0 * T2 + T3 + T4, 11);
+               return Snap_At_Stage (T1, 11);
             when 13 =>
-               return Snap_At_Stage (6.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 12) + Cm * DT;
+               return Snap_At_Stage (T3, 12) + Cm * DT;
             when 14 =>
-               return Snap_At_Stage (7.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 13);
+               return Snap_At_Stage (T1, 13);
             when 15 =>
-               return Snap_At_Stage (7.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4, 14) - Cm * DT;
+               return Snap_At_Stage (T2, 14) - Cm * DT;
          end case;
       end Snap_At_Stage;
 
@@ -227,31 +231,31 @@ package body Motion is
             when 2 =>
                return Jerk_At_Stage (T1, 1) + Cm * DT * T1;
             when 3 =>
-               return Jerk_At_Stage (T1 + T2, 2) + Cm * DT * (-DT + 2.0 * T1) / 2.0;
+               return Jerk_At_Stage (T2, 2) + Cm * DT * (-DT + 2.0 * T1) / 2.0;
             when 4 =>
-               return Jerk_At_Stage (2.0 * T1 + T2, 3);
+               return Jerk_At_Stage (T1, 3);
             when 5 =>
-               return Jerk_At_Stage (2.0 * T1 + T2 + T3, 4) - Cm * DT**2 / 2.0;
+               return Jerk_At_Stage (T3, 4) - Cm * DT**2 / 2.0;
             when 6 =>
-               return Jerk_At_Stage (3.0 * T1 + T2 + T3, 5) - Cm * DT * T1;
+               return Jerk_At_Stage (T1, 5) - Cm * DT * T1;
             when 7 =>
-               return Jerk_At_Stage (3.0 * T1 + 2.0 * T2 + T3, 6) + Cm * DT * (DT - 2.0 * T1) / 2.0;
+               return Jerk_At_Stage (T2, 6) + Cm * DT * (DT - 2.0 * T1) / 2.0;
             when 8 =>
-               return Jerk_At_Stage (4.0 * T1 + 2.0 * T2 + T3, 7);
+               return Jerk_At_Stage (T1, 7);
             when 9 =>
-               return Jerk_At_Stage (4.0 * T1 + 2.0 * T2 + T3 + T4, 8) - Cm * DT**2 / 2.0;
+               return Jerk_At_Stage (T4, 8) - Cm * DT**2 / 2.0;
             when 10 =>
-               return Jerk_At_Stage (5.0 * T1 + 2.0 * T2 + T3 + T4, 9) - Cm * DT * T1;
+               return Jerk_At_Stage (T1, 9) - Cm * DT * T1;
             when 11 =>
-               return Jerk_At_Stage (5.0 * T1 + 3.0 * T2 + T3 + T4, 10) + Cm * DT * (DT - 2.0 * T1) / 2.0;
+               return Jerk_At_Stage (T2, 10) + Cm * DT * (DT - 2.0 * T1) / 2.0;
             when 12 =>
-               return Jerk_At_Stage (6.0 * T1 + 3.0 * T2 + T3 + T4, 11);
+               return Jerk_At_Stage (T1, 11);
             when 13 =>
-               return Jerk_At_Stage (6.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 12) + Cm * DT**2 / 2.0;
+               return Jerk_At_Stage (T3, 12) + Cm * DT**2 / 2.0;
             when 14 =>
-               return Jerk_At_Stage (7.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 13) + Cm * DT * T1;
+               return Jerk_At_Stage (T1, 13) + Cm * DT * T1;
             when 15 =>
-               return Jerk_At_Stage (7.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4, 14) + Cm * DT * (-DT + 2.0 * T1) / 2.0;
+               return Jerk_At_Stage (T2, 14) + Cm * DT * (-DT + 2.0 * T1) / 2.0;
          end case;
       end Jerk_At_Stage;
 
@@ -307,41 +311,41 @@ package body Motion is
                return Acceleration_At_Stage (T1, 1) + Cm * DT * T1 * (DT + T1) / 2.0;
             when 3 =>
                return
-                 Acceleration_At_Stage (T1 + T2, 2) +
+                 Acceleration_At_Stage (T2, 2) +
                  Cm * DT * (-DT**2 + 3.0 * DT * T1 + 3.0 * T1 * (T1 + 2.0 * T2)) / 6.0;
             when 4 =>
-               return Acceleration_At_Stage (2.0 * T1 + T2, 3) + Cm * DT * T1 * (T1 + T2);
+               return Acceleration_At_Stage (T1, 3) + Cm * DT * T1 * (T1 + T2);
             when 5 =>
-               return Acceleration_At_Stage (2.0 * T1 + T2 + T3, 4) + Cm * DT * (-DT**2 + 6.0 * T1 * (T1 + T2)) / 6.0;
+               return Acceleration_At_Stage (T3, 4) + Cm * DT * (-DT**2 + 6.0 * T1 * (T1 + T2)) / 6.0;
             when 6 =>
-               return Acceleration_At_Stage (3.0 * T1 + T2 + T3, 5) + Cm * DT * T1 * (-DT + T1 + 2.0 * T2) / 2.0;
+               return Acceleration_At_Stage (T1, 5) + Cm * DT * T1 * (-DT + T1 + 2.0 * T2) / 2.0;
             when 7 =>
                return
-                 Acceleration_At_Stage (3.0 * T1 + 2.0 * T2 + T3, 6) +
+                 Acceleration_At_Stage (T2, 6) +
                  Cm * DT * (DT**2 - 3.0 * DT * T1 + 3.0 * T1**2) / 6.0;
             when 8 =>
-               return Acceleration_At_Stage (4.0 * T1 + 2.0 * T2 + T3, 7);
+               return Acceleration_At_Stage (T1, 7);
             when 9 =>
-               return Acceleration_At_Stage (4.0 * T1 + 2.0 * T2 + T3 + T4, 8) - Cm * DT**3 / 6.0;
+               return Acceleration_At_Stage (T4, 8) - Cm * DT**3 / 6.0;
             when 10 =>
-               return Acceleration_At_Stage (5.0 * T1 + 2.0 * T2 + T3 + T4, 9) + Cm * DT * T1 * (-DT - T1) / 2.0;
+               return Acceleration_At_Stage (T1, 9) + Cm * DT * T1 * (-DT - T1) / 2.0;
             when 11 =>
                return
-                 Acceleration_At_Stage (5.0 * T1 + 3.0 * T2 + T3 + T4, 10) +
+                 Acceleration_At_Stage (T2, 10) +
                  Cm * DT * (DT**2 - 3.0 * DT * T1 - 3.0 * T1 * (T1 + 2.0 * T2)) / 6.0;
             when 12 =>
-               return Acceleration_At_Stage (6.0 * T1 + 3.0 * T2 + T3 + T4, 11) - Cm * DT * T1 * (T1 + T2);
+               return Acceleration_At_Stage (T1, 11) - Cm * DT * T1 * (T1 + T2);
             when 13 =>
                return
-                 Acceleration_At_Stage (6.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 12) +
+                 Acceleration_At_Stage (T3, 12) +
                  Cm * DT * (DT**2 - 6.0 * T1 * (T1 + T2)) / 6.0;
             when 14 =>
                return
-                 Acceleration_At_Stage (7.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 13) +
+                 Acceleration_At_Stage (T1, 13) +
                  Cm * DT * T1 * (DT - T1 - 2.0 * T2) / 2.0;
             when 15 =>
                return
-                 Acceleration_At_Stage (7.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4, 14) +
+                 Acceleration_At_Stage (T2, 14) +
                  Cm * DT * (-DT**2 + 3.0 * DT * T1 - 3.0 * T1**2) / 6.0;
          end case;
       end Acceleration_At_Stage;
@@ -398,76 +402,76 @@ package body Motion is
                return Velocity_At_Stage (T1, 1) + Cm * DT * T1 * (2.0 * DT**2 + 3.0 * DT * T1 + 2.0 * T1**2) / 12.0;
             when 3 =>
                return
-                 Velocity_At_Stage (T1 + T2, 2) +
+                 Velocity_At_Stage (T2, 2) +
                  Cm * DT *
                    (-DT**3 + 4.0 * DT**2 * T1 + 6.0 * DT * T1 * (T1 + 2.0 * T2) +
                     4.0 * T1 * (T1**2 + 3.0 * T1 * T2 + 3.0 * T2**2)) /
                    24.0;
             when 4 =>
                return
-                 Velocity_At_Stage (2.0 * T1 + T2, 3) +
+                 Velocity_At_Stage (T1, 3) +
                  Cm * DT * T1 * (DT * (T1 + T2) + 2.0 * T1**2 + 3.0 * T1 * T2 + T2**2) / 2.0;
             when 5 =>
                return
-                 Velocity_At_Stage (2.0 * T1 + T2 + T3, 4) +
+                 Velocity_At_Stage (T3, 4) +
                  Cm * DT *
                    (-DT**3 + 12.0 * DT * T1 * (T1 + T2) +
                     12.0 * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + 2.0 * T1 * T3 + T2**2 + 2.0 * T2 * T3)) /
                    24.0;
             when 6 =>
                return
-                 Velocity_At_Stage (3.0 * T1 + T2 + T3, 5) +
+                 Velocity_At_Stage (T1, 5) +
                  Cm * DT * T1 *
                    (-2.0 * DT**2 + 3.0 * DT * (T1 + 2.0 * T2) + 22.0 * T1**2 + 30.0 * T1 * T2 + 12.0 * T1 * T3 +
                     6.0 * T2**2 + 12.0 * T2 * T3) /
                    12.0;
             when 7 =>
                return
-                 Velocity_At_Stage (3.0 * T1 + 2.0 * T2 + T3, 6) +
+                 Velocity_At_Stage (T2, 6) +
                  Cm * DT *
                    (DT**3 - 4.0 * DT**2 * T1 + 6.0 * DT * T1**2 +
                     4.0 * T1 * (11.0 * T1**2 + 18.0 * T1 * T2 + 6.0 * T1 * T3 + 6.0 * T2**2 + 6.0 * T2 * T3)) /
                    24.0;
             when 8 =>
                return
-                 Velocity_At_Stage (4.0 * T1 + 2.0 * T2 + T3, 7) +
+                 Velocity_At_Stage (T1, 7) +
                  Cm * DT * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T1 * T3 + T2**2 + T2 * T3);
             when 9 =>
                return
-                 Velocity_At_Stage (4.0 * T1 + 2.0 * T2 + T3 + T4, 8) +
+                 Velocity_At_Stage (T4, 8) +
                  Cm * DT * (-DT**3 + 24.0 * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T1 * T3 + T2**2 + T2 * T3)) / 24.0;
             when 10 =>
                return
-                 Velocity_At_Stage (5.0 * T1 + 2.0 * T2 + T3 + T4, 9) +
+                 Velocity_At_Stage (T1, 9) +
                  Cm * DT * T1 *
                    (-2.0 * DT**2 - 3.0 * DT * T1 + 22.0 * T1**2 + 36.0 * T1 * T2 + 12.0 * T1 * T3 + 12.0 * T2**2 +
                     12.0 * T2 * T3) /
                    12.0;
             when 11 =>
                return
-                 Velocity_At_Stage (5.0 * T1 + 3.0 * T2 + T3 + T4, 10) +
+                 Velocity_At_Stage (T2, 10) +
                  Cm * DT *
                    (DT**3 - 4.0 * DT**2 * T1 - 6.0 * DT * T1 * (T1 + 2.0 * T2) +
                     4.0 * T1 * (11.0 * T1**2 + 15.0 * T1 * T2 + 6.0 * T1 * T3 + 3.0 * T2**2 + 6.0 * T2 * T3)) /
                    24.0;
             when 12 =>
                return
-                 Velocity_At_Stage (6.0 * T1 + 3.0 * T2 + T3 + T4, 11) +
+                 Velocity_At_Stage (T1, 11) +
                  Cm * DT * T1 *
                    (-DT * (T1 + T2) + 2.0 * T1**2 + 3.0 * T1 * T2 + 2.0 * T1 * T3 + T2**2 + 2.0 * T2 * T3) / 2.0;
             when 13 =>
                return
-                 Velocity_At_Stage (6.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 12) +
+                 Velocity_At_Stage (T3, 12) +
                  Cm * DT * (DT**3 - 12.0 * DT * T1 * (T1 + T2) + 12.0 * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T2**2)) /
                    24.0;
             when 14 =>
                return
-                 Velocity_At_Stage (7.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 13) +
+                 Velocity_At_Stage (T1, 13) +
                  Cm * DT * T1 *
                    (2.0 * DT**2 - 3.0 * DT * (T1 + 2.0 * T2) + 2.0 * T1**2 + 6.0 * T1 * T2 + 6.0 * T2**2) / 12.0;
             when 15 =>
                return
-                 Velocity_At_Stage (7.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4, 14) +
+                 Velocity_At_Stage (T2, 14) +
                  Cm * DT * (-DT**3 + 4.0 * DT**2 * T1 - 6.0 * DT * T1**2 + 4.0 * T1**3) / 24.0;
          end case;
       end Velocity_At_Stage;
@@ -526,7 +530,7 @@ package body Motion is
                  Cm * DT * T1 * (DT**3 + 2.0 * DT**2 * T1 + 2.0 * DT * T1**2 + T1**3) / 24.0;
             when 3 =>
                return
-                 Distance_At_Stage (T1 + T2, 2) +
+                 Distance_At_Stage (T2, 2) +
                  Cm * DT *
                    (-DT**4 + 5.0 * DT**3 * T1 + 10.0 * DT**2 * T1 * (T1 + 2.0 * T2) +
                     10.0 * DT * T1 * (T1**2 + 3.0 * T1 * T2 + 3.0 * T2**2) +
@@ -534,14 +538,14 @@ package body Motion is
                    120.0;
             when 4 =>
                return
-                 Distance_At_Stage (2.0 * T1 + T2, 3) +
+                 Distance_At_Stage (T1, 3) +
                  Cm * DT * T1 *
                    (2.0 * DT**2 * (T1 + T2) + 3.0 * DT * (2.0 * T1**2 + 3.0 * T1 * T2 + T2**2) + 7.0 * T1**3 +
                     14.0 * T1**2 * T2 + 9.0 * T1 * T2**2 + 2.0 * T2**3) /
                    12.0;
             when 5 =>
                return
-                 Distance_At_Stage (2.0 * T1 + T2 + T3, 4) +
+                 Distance_At_Stage (T3, 4) +
                  Cm * DT *
                    (-DT**4 + 20.0 * DT**2 * T1 * (T1 + T2) +
                     30.0 * DT * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + 2.0 * T1 * T3 + T2**2 + 2.0 * T2 * T3) +
@@ -551,7 +555,7 @@ package body Motion is
                    120.0;
             when 6 =>
                return
-                 Distance_At_Stage (3.0 * T1 + T2 + T3, 5) +
+                 Distance_At_Stage (T1, 5) +
                  Cm * DT * T1 *
                    (-DT**3 + 2.0 * DT**2 * (T1 + 2.0 * T2) +
                     2.0 * DT * (11.0 * T1**2 + 15.0 * T1 * T2 + 6.0 * T1 * T3 + 3.0 * T2**2 + 6.0 * T2 * T3) +
@@ -560,7 +564,7 @@ package body Motion is
                    24.0;
             when 7 =>
                return
-                 Distance_At_Stage (3.0 * T1 + 2.0 * T2 + T3, 6) +
+                 Distance_At_Stage (T2, 6) +
                  Cm * DT *
                    (DT**4 - 5.0 * DT**3 * T1 + 10.0 * DT**2 * T1**2 +
                     10.0 * DT * T1 * (11.0 * T1**2 + 18.0 * T1 * T2 + 6.0 * T1 * T3 + 6.0 * T2**2 + 6.0 * T2 * T3) +
@@ -571,7 +575,7 @@ package body Motion is
                    120.0;
             when 8 =>
                return
-                 Distance_At_Stage (4.0 * T1 + 2.0 * T2 + T3, 7) +
+                 Distance_At_Stage (T1, 7) +
                  Cm * DT * T1 *
                    (DT * (2.0 * T1**2 + 3.0 * T1 * T2 + T1 * T3 + T2**2 + T2 * T3) + 8.0 * T1**3 + 16.0 * T1**2 * T2 +
                     6.0 * T1**2 * T3 + 10.0 * T1 * T2**2 + 9.0 * T1 * T2 * T3 + T1 * T3**2 + 2.0 * T2**3 +
@@ -579,7 +583,7 @@ package body Motion is
                    2.0;
             when 9 =>
                return
-                 Distance_At_Stage (4.0 * T1 + 2.0 * T2 + T3 + T4, 8) +
+                 Distance_At_Stage (T4, 8) +
                  Cm * DT *
                    (-DT**4 + 60.0 * DT * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T1 * T3 + T2**2 + T2 * T3) +
                     60.0 * T1 *
@@ -589,7 +593,7 @@ package body Motion is
                    120.0;
             when 10 =>
                return
-                 Distance_At_Stage (5.0 * T1 + 2.0 * T2 + T3 + T4, 9) +
+                 Distance_At_Stage (T1, 9) +
                  Cm * DT * T1 *
                    (-DT**3 - 2.0 * DT**2 * T1 +
                     2.0 * DT * (11.0 * T1**2 + 18.0 * T1 * T2 + 6.0 * T1 * T3 + 6.0 * T2**2 + 6.0 * T2 * T3) +
@@ -599,7 +603,7 @@ package body Motion is
                    24.0;
             when 11 =>
                return
-                 Distance_At_Stage (5.0 * T1 + 3.0 * T2 + T3 + T4, 10) +
+                 Distance_At_Stage (T2, 10) +
                  Cm * DT *
                    (DT**4 - 5.0 * DT**3 * T1 - 10.0 * DT**2 * T1 * (T1 + 2.0 * T2) +
                     10.0 * DT * T1 * (11.0 * T1**2 + 15.0 * T1 * T2 + 6.0 * T1 * T3 + 3.0 * T2**2 + 6.0 * T2 * T3) +
@@ -611,7 +615,7 @@ package body Motion is
                    120.0;
             when 12 =>
                return
-                 Distance_At_Stage (6.0 * T1 + 3.0 * T2 + T3 + T4, 11) +
+                 Distance_At_Stage (T1, 11) +
                  Cm * DT * T1 *
                    (-2.0 * DT**2 * (T1 + T2) +
                     3.0 * DT * (2.0 * T1**2 + 3.0 * T1 * T2 + 2.0 * T1 * T3 + T2**2 + 2.0 * T2 * T3) + 89.0 * T1**3 +
@@ -621,7 +625,7 @@ package body Motion is
                    12.0;
             when 13 =>
                return
-                 Distance_At_Stage (6.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 12) +
+                 Distance_At_Stage (T3, 12) +
                  Cm * DT *
                    (DT**4 - 20.0 * DT**2 * T1 * (T1 + T2) + 30.0 * DT * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T2**2) +
                     10.0 * T1 *
@@ -632,7 +636,7 @@ package body Motion is
                    120.0;
             when 14 =>
                return
-                 Distance_At_Stage (7.0 * T1 + 3.0 * T2 + 2.0 * T3 + T4, 13) +
+                 Distance_At_Stage (T1, 13) +
                  Cm * DT * T1 *
                    (DT**3 - 2.0 * DT**2 * (T1 + 2.0 * T2) + 2.0 * DT * (T1**2 + 3.0 * T1 * T2 + 3.0 * T2**2) +
                     191.0 * T1**3 + 380.0 * T1**2 * T2 + 144.0 * T1**2 * T3 + 48.0 * T1**2 * T4 + 234.0 * T1 * T2**2 +
@@ -641,7 +645,7 @@ package body Motion is
                    24.0;
             when 15 =>
                return
-                 Distance_At_Stage (7.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4, 14) +
+                 Distance_At_Stage (T2, 14) +
                  Cm * DT *
                    (-DT**4 + 5.0 * DT**3 * T1 - 10.0 * DT**2 * T1**2 + 10.0 * DT * T1**3 +
                     5.0 * T1 *

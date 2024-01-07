@@ -6,7 +6,6 @@ package body Motion.Acceleration_Profile_Generator is
    task body Runner is
       Config : Config_Parameters;
 
-      --  This is just a simplified version of Distance_At_Time where T = T1.
       function Fast_Distance_At_Time (Profile : Acceleration_Profile_Times; Start_Vel : Velocity) return Length is
          T1 : constant Time     := Profile (1);
          T2 : constant Time     := Profile (2);
@@ -20,8 +19,7 @@ package body Motion.Acceleration_Profile_Generator is
            (8.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4);
       end Fast_Distance_At_Time;
 
-      --  This is just a simplified version of Velocity_At_Time where T = T1 and Vs = 0.
-      function Fast_Velocity_At_Time (Profile : Acceleration_Profile_Times) return Velocity is
+      function Fast_Delta_V_At_Time (Profile : Acceleration_Profile_Times) return Velocity is
          T1 : constant Time    := Profile (1);
          T2 : constant Time    := Profile (2);
          T3 : constant Time    := Profile (3);
@@ -29,7 +27,7 @@ package body Motion.Acceleration_Profile_Generator is
          Cm : constant Crackle := Config.Crackle_Limit;
       begin
          return Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4);
-      end Fast_Velocity_At_Time;
+      end Fast_Delta_V_At_Time;
 
       function Solve_Velocity_At_Time
         (Profile  : Acceleration_Profile_Times;
@@ -57,7 +55,7 @@ package body Motion.Acceleration_Profile_Generator is
          loop
             Result (Variable) := Cast_Time ((Cast_Time (Lower) + Cast_Time (Upper)) / 2);
             exit when Lower = Result (Variable) or Upper = Result (Variable);
-            if Fast_Velocity_At_Time (Result) <= Target then
+            if Fast_Delta_V_At_Time (Result) <= Target then
                Lower := Result (Variable);
             else
                Upper := Result (Variable);
@@ -135,19 +133,30 @@ package body Motion.Acceleration_Profile_Generator is
                end if;
             end if;
          else
-            if Vd > Am * (Am / Jm + 2.0 * (Jm / Cm)**(1 / 2)) then
-               --  Reachable: Jm, Am
-               return
-                 [(Jm / Cm)**(1 / 2),
-                 0.0 * s,
-                 Am / Jm - 2.0 * (Jm / Cm)**(1 / 2),
-                 Vd / Am - Am / Jm - 2.0 * (Jm / Cm)**(1 / 2)];
-            elsif Vd > 8.0 * Jm**2 / Cm then
-               --  Reachable: Jm
-               return [(Jm / Cm)**(1 / 2), 0.0 * s, (Jm / Cm + Vd / Jm)**(1 / 2) - 3.0 * (Jm / Cm)**(1 / 2), 0.0 * s];
+            if Am > 2.0 * Jm * (Jm / Cm)**(1 / 2) then
+               if Vd > Am * (Am / Jm + 2.0 * (Jm / Cm)**(1 / 2)) then
+                  --  Reachable: Jm, Am
+                  return
+                    [(Jm / Cm)**(1 / 2),
+                    0.0 * s,
+                    Am / Jm - 2.0 * (Jm / Cm)**(1 / 2),
+                    Vd / Am - Am / Jm - 2.0 * (Jm / Cm)**(1 / 2)];
+               elsif Vd > 8.0 * Jm**2 / Cm then
+                  --  Reachable: Jm
+                  return
+                    [(Jm / Cm)**(1 / 2), 0.0 * s, (Jm / Cm + Vd / Jm)**(1 / 2) - 3.0 * (Jm / Cm)**(1 / 2), 0.0 * s];
+               else
+                  --  Reachable: None
+                  return [(0.125 * Vd / Cm)**(1 / 4), 0.0 * s, 0.0 * s, 0.0 * s];
+               end if;
             else
-               --  Reachable: None
-               return [(0.125 * Vd / Cm)**(1 / 4), 0.0 * s, 0.0 * s, 0.0 * s];
+               if Vd > 8.0 * Cm * (0.5 * Am / Cm)**(4 / 3) then
+                  --  Reachable: Am
+                  return [(0.5 * Am / Cm)**(1 / 3), 0.0 * s, 0.0 * s, Vd / Am - 4.0 * (0.5 * Am / Cm)**(1 / 3)];
+               else
+                  --  Reachable: None
+                  return [(0.125 * Vd / Cm)**(1 / 4), 0.0 * s, 0.0 * s, 0.0 * s];
+               end if;
             end if;
          end if;
       end Optimal_Accel_For_Delta_V;
@@ -156,10 +165,17 @@ package body Motion.Acceleration_Profile_Generator is
       begin
          pragma Assert (Data.Last_Stage = Kinematic_Limiter_Stage);
 
-         Data.Corner_Velocity_Limits (Data.Corner_Velocity_Limits'First) := 0.0 * mm / s;
-         Data.Corner_Velocity_Limits (Data.Corner_Velocity_Limits'Last)  := 0.0 * mm / s;
-
          for I in Data.Segment_Acceleration_Profiles'Range loop
+            -- declare
+            --    Acc             : Acceleration_Profile_Times :=
+            --      Optimal_Accel_For_Delta_V (Data.Corner_Velocity_Limits (I - 1) - Data.Corner_Velocity_Limits (I));
+            --    Corner_Distance : constant Length            :=
+            --      Curve_Corner_Distance (Data.Curve_Point_Sets (I - 1), Data.Curve_Point_Sets (I));
+            -- begin
+            --    null;
+            --    Put (Length'Image(Fast_Distance_At_Time (Acc, Data.Corner_Velocity_Limits (I - 1))) & Length'Image (Corner_Distance));
+            -- end;
+
             Data.Segment_Acceleration_Profiles (I).Accel :=
               Optimal_Accel_For_Delta_V (Data.Corner_Velocity_Limits (I - 1) - Data.Segment_Velocity_Limits (I));
             Data.Segment_Acceleration_Profiles (I).Decel :=
@@ -182,9 +198,9 @@ package body Motion.Acceleration_Profile_Generator is
                      type Casted_Vel is mod 2**64;
                      function Cast_Vel is new Ada.Unchecked_Conversion (Velocity, Casted_Vel);
                      function Cast_Vel is new Ada.Unchecked_Conversion (Casted_Vel, Velocity);
-                     Bound_A : Velocity := Data.Segment_Velocity_Limits (I);
-                     Bound_B : Velocity := Data.Corner_Velocity_Limits (I);
-                     Mid     : Velocity := Cast_Vel ((Cast_Vel (Bound_A) + Cast_Vel (Bound_B)) / 2);
+                     Upper : Velocity := Data.Segment_Velocity_Limits (I);
+                     Lower : Velocity := Data.Corner_Velocity_Limits (I);
+                     Mid   : Velocity;
                   begin
                      --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to
                      --  check that here.
@@ -194,15 +210,13 @@ package body Motion.Acceleration_Profile_Generator is
                      pragma Assert (Cast_Vel (0.123_45 * mm / s) = 4_593_559_930_647_147_132);
 
                      loop
-                        Mid := Cast_Vel ((Cast_Vel (Bound_A) + Cast_Vel (Bound_B)) / 2);
-                        exit when Bound_A = Mid or Bound_B = Mid;
+                        Mid := Cast_Vel ((Cast_Vel (Lower) + Cast_Vel (Upper)) / 2);
+                        exit when Lower = Mid or Upper = Mid;
 
                         Data.Segment_Acceleration_Profiles (I).Accel :=
-                          Optimal_Accel_For_Delta_V
-                            (Data.Corner_Velocity_Limits (I - 1) - Data.Segment_Velocity_Limits (I));
+                          Optimal_Accel_For_Delta_V (Data.Corner_Velocity_Limits (I - 1) - Mid);
                         Data.Segment_Acceleration_Profiles (I).Decel :=
-                          Optimal_Accel_For_Delta_V
-                            (Data.Corner_Velocity_Limits (I) - Data.Segment_Velocity_Limits (I));
+                          Optimal_Accel_For_Delta_V (Data.Corner_Velocity_Limits (I) - Mid);
 
                         Accel_Distance :=
                           Fast_Distance_At_Time
@@ -212,18 +226,17 @@ package body Motion.Acceleration_Profile_Generator is
                             (Data.Segment_Acceleration_Profiles (I).Decel, Data.Corner_Velocity_Limits (I));
 
                         if Accel_Distance + Decel_Distance <= Corner_Distance then
-                           Bound_A := Velocity'Max (Bound_A, Bound_B);
-                           Bound_B := Mid;
+                           Lower := Mid;
                         else
-                           Bound_A := Velocity'Min (Bound_A, Bound_B);
-                           Bound_B := Mid;
+                           Upper := Mid;
                         end if;
                      end loop;
+                     -- Put_Line
+                     --   (Length'Image (Accel_Distance) & Length'Image (Decel_Distance) &
+                     --    Length'Image ((Accel_Distance + Decel_Distance) / Corner_Distance) & Velocity'Image (Data.Corner_Velocity_Limits (I)));
                   end;
                end if;
             end;
-
-            Put_Line (Segment_Acceleration_Profile'Image (Data.Segment_Acceleration_Profiles (I)));
          end loop;
       end Processor;
 

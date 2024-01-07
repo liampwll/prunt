@@ -42,8 +42,9 @@ private
       Acceleration_Profile_Generator_Stage,
       --  TODO: Replace with step generation.
       Logger_Stage);
-
-   type Corners_Index is range 0 .. 2_000;
+   
+   --  TODO: Change back to 2000
+   type Corners_Index is range 0 .. 200;
 
    --  Preprocessor
 
@@ -84,6 +85,10 @@ private
    end record;
 
    type Block_Segment_Acceleration_Profiles is array (Corners_Index range <>) of Segment_Acceleration_Profile;
+
+   --  Logger
+
+   Logger_Interpolation_Time : constant Time := 0.005 * s;
 
    --  End of pipeline stage types.
 
