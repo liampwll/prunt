@@ -1,5 +1,10 @@
-package Physical_Types is
-   type Dimensioned_Float is new Long_Float with
+package Physical_Types with
+  SPARK_Mode
+is
+
+   type Bounded_Long_Float is new Long_Float range -Long_Float'Large .. Long_Float'Large;
+
+   type Dimensioned_Float is new Bounded_Long_Float with
      Dimension_System =>
       ((Unit_Name => Millimeter, Unit_Symbol => "mm", Dim_Symbol => "Length"),
        (Unit_Name => Second, Unit_Symbol => "s", Dim_Symbol => "Time"),
@@ -56,7 +61,7 @@ package Physical_Types is
    type Axis_Name is (X_Axis, Y_Axis, Z_Axis, E_Axis);
 
    type Position is array (Axis_Name) of Length;
-   --  A Scaled_Position is an absolute position that does not represent real machine coordinates.
+     --  A Scaled_Position is an absolute position that does not represent real machine coordinates.
    type Scaled_Position is array (Axis_Name) of Length;
    type Position_Offset is array (Axis_Name) of Length;
    type Scaled_Position_Offset is array (Axis_Name) of Length;
@@ -73,9 +78,9 @@ package Physical_Types is
    function "+" (Left, Right : Position_Scale) return Position_Scale;
    function "-" (Left, Right : Position) return Position_Offset;
    function "-" (Left, Right : Scaled_Position) return Scaled_Position_Offset;
-   function "/" (Left : Position_Offset; Right : Length) return Position_Scale;
-   function "/" (Left : Position_Scale; Right : Dimensionless) return Position_Scale;
-   function "/" (Left : Scaled_Position_Offset; Right : Length) return Position_Scale;
+   function "/" (Left : Position_Offset; Right : Length) return Position_Scale with Pre => (Right /= 0.0 * mm);
+   function "/" (Left : Position_Scale; Right : Dimensionless) return Position_Scale with Pre => (Right /= 0.0);
+   function "/" (Left : Scaled_Position_Offset; Right : Length) return Position_Scale with Pre => (Right /= 0.0 * mm);
    function "abs" (Left : Position_Offset) return Length;
    function "abs" (Left : Position_Scale) return Dimensionless;
    function "abs" (Left : Scaled_Position_Offset) return Length;

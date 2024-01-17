@@ -1,4 +1,6 @@
 with "config/prunt_config.gpr";
+--  with "sparklib.gpr";
+
 project Prunt is
 
    for Source_Dirs use ("src/", "config/");
@@ -14,6 +16,7 @@ project Prunt is
          "-gnat2022",
          "-fstack-usage",
          "-gnaty-B");
+      for Local_Configuration_Pragmas use "global_pragmas.adc";
    end Compiler;
 
    package Binder is

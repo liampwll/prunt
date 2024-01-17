@@ -1,6 +1,9 @@
 with Ada.Numerics.Generic_Elementary_Functions;
 
-package body Physical_Types is
+package body Physical_Types with
+  --  Disable SPARK here as proving all this math is hard.
+  SPARK_Mode => Off
+is
 
    package Math is new Ada.Numerics.Generic_Elementary_Functions (Dimensioned_Float);
    use Math;

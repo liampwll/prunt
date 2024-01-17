@@ -1,111 +1,71 @@
-with Motion.Preprocessor;
-with Motion.Curvifier;
-with Motion.Curve_Splitter;
-with Motion.Kinematic_Limiter;
-with Motion.Acceleration_Profile_Generator;
-with Motion.Logger;
-with Ada.Exceptions;
-with Ada.Text_IO; use Ada.Text_IO;
-with Ada.Task_Identification;
+with Motion.Planner;
+-- with Motion.Executor;
 
 package body Motion is
 
    procedure Init (Config : Config_Parameters) is
    begin
-      Motion.Preprocessor.Runner.Init (Config);
-      Motion.Curvifier.Runner.Init (Config);
-      Motion.Curve_Splitter.Runner.Init (Config);
-      Motion.Kinematic_Limiter.Runner.Init (Config);
-      Motion.Acceleration_Profile_Generator.Runner.Init (Config);
-      Motion.Logger.Runner.Init (Config);
+      --  TODO: Perform validity checks here. No negative limits.
+      Motion.Planner.Runner.Init (Config);
+      -- Motion.Executor.Runner.Init (Config);
    end Init;
 
-   procedure Enqueue (Pos : Position; Velocity_Limit : Velocity) is
+   procedure Enqueue (Pos : Position; Limits : Kinematic_Limits) is
    begin
-      Motion.Preprocessor.Runner.Enqueue (Pos, Velocity_Limit);
+      --  TODO: Perform validity checks here. No negative limits or out-of-bounds moves.
+      --  The planner is responsible for limiting to the maximum limits in the configuration record.
+      Motion.Planner.Command_Queue.Enqueue ((Motion.Planner.Move_Kind, Pos, Limits));
    end Enqueue;
 
-   procedure Flush (Next_Master : Master_Manager.Master) is
+   procedure Flush (Next_Master : Master_Manager.Master := Master_Manager.Motion_Master) is
    begin
-      Motion.Preprocessor.Runner.Flush (Next_Master);
+      Motion.Planner.Command_Queue.Enqueue ((Motion.Planner.Flush_Kind, Next_Master));
    end Flush;
 
-   protected body Block is
+   type Feedrate_Profile_Stage_Index is range 1 .. 15;
 
-      entry Wait (for Stage in Preprocessor_Stage .. Logger_Stage)
-        when Block_Pipeline_Stages'Pred (Stage) = Data.Last_Stage
-      is
-      begin
-         null;
-      end Wait;
-
-      procedure Process (Stage : Block_Pipeline_Stages; Processor : access procedure (Data : in out Block_Data))
-      is
-      begin
-         if Block_Pipeline_Stages'Pred (Stage) /= Data.Last_Stage then
-            raise Program_Error;
-         end if;
-         Processor (Data);
-         if Stage = Logger_Stage then
-            Data.Last_Stage := None_Stage;
-         else
-            Data.Last_Stage := Stage;
-         end if;
-      exception
-         when E : others =>
-            Put_Line ("Exception in motion pipeline:");
-            Put_Line (Ada.Exceptions.Exception_Information (E));
-            Put_Line ("Terminating task " & Ada.Task_Identification.Image (Ada.Task_Identification.Current_Task));
-            Ada.Task_Identification.Abort_Task (Ada.Task_Identification.Current_Task);
-      end Process;
-
-   end Block;
-
-   function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position is
-      type Partial_Bezier is array (Bezier_Index range <>) of Scaled_Position;
-
-      function Recur (Bez : Partial_Bezier) return Scaled_Position is
-         Next_Bez : constant Partial_Bezier :=
-           [for I in Bez'First .. Bez'Last - 1 => Bez (I) + (Bez (I + 1) - Bez (I)) * T];
-      begin
-         if Next_Bez'Length = 1 then
-            return Next_Bez (Bezier_Index'First);
-         else
-            return Recur (Next_Bez);
-         end if;
-      end Recur;
-
+   function Fast_Distance_At_Max_Time
+     (Profile : Feedrate_Profile_Times; Start_Crackle : Crackle; Start_Vel : Velocity) return Length
+   is
+      T1 : constant Time     := Profile (1);
+      T2 : constant Time     := Profile (2);
+      T3 : constant Time     := Profile (3);
+      T4 : constant Time     := Profile (4);
+      Cm : constant Crackle  := Start_Crackle;
+      Vs : constant Velocity := Start_Vel;
    begin
-      return Recur ([for I in Bezier_Index => Bez (I)]);
-   end Compute_Bezier_Point;
+      return
+        (Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4) / 2.0) *
+        (8.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4);
+   end Fast_Distance_At_Max_Time;
 
-   function Curve_Corner_Distance (Start, Finish : Curve_Point_Set) return Length is
-      Sum : Length := 0.0 * mm;
+   function Fast_Velocity_At_Max_Time
+     (Profile : Feedrate_Profile_Times; Start_Crackle : Crackle; Start_Vel : Velocity) return Velocity
+   is
+      T1 : constant Time     := Profile (1);
+      T2 : constant Time     := Profile (2);
+      T3 : constant Time     := Profile (3);
+      T4 : constant Time     := Profile (4);
+      Cm : constant Crackle  := Start_Crackle;
+      Vs : constant Velocity := Start_Vel;
    begin
-      for I in 0 .. Start'Last - 1 loop
-         Sum := Sum + abs (Start (I) - Start (I + 1));
-      end loop;
+      return Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4);
+   end Fast_Velocity_At_Max_Time;
 
-      for I in Finish'First + 1 .. 0 loop
-         Sum := Sum + abs (Finish (I - 1) - Finish (I));
-      end loop;
+   function Total_Time (Times : Feedrate_Profile_Times) return Time is
+   begin
+      return 8.0 * Times (1) + 4.0 * Times (2) + 2.0 * Times (3) + Times (4);
+   end Total_Time;
 
-      return Sum + abs (Start (Start'Last) - Finish (Finish'First));
-   end Curve_Corner_Distance;
-
-   type Acceleration_Profile_Stage_Index is range 1 .. 15;
-
-   --  The recursive nature of these functions is significantly more inefficient than directly computing the value at
-   --  each stage. However, this method avoids any discontinuity due to floating point errors. Whether this matters in
-   --  practice has not been analysed.
-
-   function Crackle_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Crackle is
+   function Crackle_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Crackle is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
       T3 : constant Time    := Profile (3);
       T4 : constant Time    := Profile (4);
-      Cm : constant Crackle := Crackle_Limit;
+      Cm : constant Crackle := Start_Crackle;
    begin
+      pragma Assert (T <= Total_Time (Profile));
+
       if T < T1 then
          return Cm;
       elsif T < T1 + T2 then
@@ -139,14 +99,14 @@ package body Motion is
       end if;
    end Crackle_At_Time;
 
-   function Snap_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Snap is
+   function Snap_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Snap is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
       T3 : constant Time    := Profile (3);
       T4 : constant Time    := Profile (4);
-      Cm : constant Crackle := Crackle_Limit;
+      Cm : constant Crackle := Start_Crackle;
 
-      function Snap_At_Stage (DT : Time; Stage : Acceleration_Profile_Stage_Index) return Snap is
+      function Snap_At_Stage (DT : Time; Stage : Feedrate_Profile_Stage_Index) return Snap is
       begin
          case Stage is
             when 1 =>
@@ -183,6 +143,8 @@ package body Motion is
       end Snap_At_Stage;
 
    begin
+      pragma Assert (T <= Total_Time (Profile));
+
       if T < T1 then
          return Snap_At_Stage (T, 1);
       elsif T < T1 + T2 then
@@ -216,14 +178,14 @@ package body Motion is
       end if;
    end Snap_At_Time;
 
-   function Jerk_At_Time (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Jerk is
+   function Jerk_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Jerk is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
       T3 : constant Time    := Profile (3);
       T4 : constant Time    := Profile (4);
-      Cm : constant Crackle := Crackle_Limit;
+      Cm : constant Crackle := Start_Crackle;
 
-      function Jerk_At_Stage (DT : Time; Stage : Acceleration_Profile_Stage_Index) return Jerk is
+      function Jerk_At_Stage (DT : Time; Stage : Feedrate_Profile_Stage_Index) return Jerk is
       begin
          case Stage is
             when 1 =>
@@ -260,6 +222,8 @@ package body Motion is
       end Jerk_At_Stage;
 
    begin
+      pragma Assert (T <= Total_Time (Profile));
+
       if T < T1 then
          return Jerk_At_Stage (T, 1);
       elsif T < T1 + T2 then
@@ -294,15 +258,15 @@ package body Motion is
    end Jerk_At_Time;
 
    function Acceleration_At_Time
-     (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle) return Acceleration
+     (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Acceleration
    is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
       T3 : constant Time    := Profile (3);
       T4 : constant Time    := Profile (4);
-      Cm : constant Crackle := Crackle_Limit;
+      Cm : constant Crackle := Start_Crackle;
 
-      function Acceleration_At_Stage (DT : Time; Stage : Acceleration_Profile_Stage_Index) return Acceleration is
+      function Acceleration_At_Stage (DT : Time; Stage : Feedrate_Profile_Stage_Index) return Acceleration is
       begin
          case Stage is
             when 1 =>
@@ -311,8 +275,7 @@ package body Motion is
                return Acceleration_At_Stage (T1, 1) + Cm * DT * T1 * (DT + T1) / 2.0;
             when 3 =>
                return
-                 Acceleration_At_Stage (T2, 2) +
-                 Cm * DT * (-DT**2 + 3.0 * DT * T1 + 3.0 * T1 * (T1 + 2.0 * T2)) / 6.0;
+                 Acceleration_At_Stage (T2, 2) + Cm * DT * (-DT**2 + 3.0 * DT * T1 + 3.0 * T1 * (T1 + 2.0 * T2)) / 6.0;
             when 4 =>
                return Acceleration_At_Stage (T1, 3) + Cm * DT * T1 * (T1 + T2);
             when 5 =>
@@ -320,9 +283,7 @@ package body Motion is
             when 6 =>
                return Acceleration_At_Stage (T1, 5) + Cm * DT * T1 * (-DT + T1 + 2.0 * T2) / 2.0;
             when 7 =>
-               return
-                 Acceleration_At_Stage (T2, 6) +
-                 Cm * DT * (DT**2 - 3.0 * DT * T1 + 3.0 * T1**2) / 6.0;
+               return Acceleration_At_Stage (T2, 6) + Cm * DT * (DT**2 - 3.0 * DT * T1 + 3.0 * T1**2) / 6.0;
             when 8 =>
                return Acceleration_At_Stage (T1, 7);
             when 9 =>
@@ -331,26 +292,21 @@ package body Motion is
                return Acceleration_At_Stage (T1, 9) + Cm * DT * T1 * (-DT - T1) / 2.0;
             when 11 =>
                return
-                 Acceleration_At_Stage (T2, 10) +
-                 Cm * DT * (DT**2 - 3.0 * DT * T1 - 3.0 * T1 * (T1 + 2.0 * T2)) / 6.0;
+                 Acceleration_At_Stage (T2, 10) + Cm * DT * (DT**2 - 3.0 * DT * T1 - 3.0 * T1 * (T1 + 2.0 * T2)) / 6.0;
             when 12 =>
                return Acceleration_At_Stage (T1, 11) - Cm * DT * T1 * (T1 + T2);
             when 13 =>
-               return
-                 Acceleration_At_Stage (T3, 12) +
-                 Cm * DT * (DT**2 - 6.0 * T1 * (T1 + T2)) / 6.0;
+               return Acceleration_At_Stage (T3, 12) + Cm * DT * (DT**2 - 6.0 * T1 * (T1 + T2)) / 6.0;
             when 14 =>
-               return
-                 Acceleration_At_Stage (T1, 13) +
-                 Cm * DT * T1 * (DT - T1 - 2.0 * T2) / 2.0;
+               return Acceleration_At_Stage (T1, 13) + Cm * DT * T1 * (DT - T1 - 2.0 * T2) / 2.0;
             when 15 =>
-               return
-                 Acceleration_At_Stage (T2, 14) +
-                 Cm * DT * (-DT**2 + 3.0 * DT * T1 - 3.0 * T1**2) / 6.0;
+               return Acceleration_At_Stage (T2, 14) + Cm * DT * (-DT**2 + 3.0 * DT * T1 - 3.0 * T1**2) / 6.0;
          end case;
       end Acceleration_At_Stage;
 
    begin
+      pragma Assert (T <= Total_Time (Profile));
+
       if T < T1 then
          return Acceleration_At_Stage (T, 1);
       elsif T < T1 + T2 then
@@ -385,15 +341,15 @@ package body Motion is
    end Acceleration_At_Time;
 
    function Velocity_At_Time
-     (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle; Start_Vel : Velocity) return Velocity
+     (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle; Start_Vel : Velocity) return Velocity
    is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
       T3 : constant Time    := Profile (3);
       T4 : constant Time    := Profile (4);
-      Cm : constant Crackle := Crackle_Limit;
+      Cm : constant Crackle := Start_Crackle;
 
-      function Velocity_At_Stage (DT : Time; Stage : Acceleration_Profile_Stage_Index) return Velocity is
+      function Velocity_At_Stage (DT : Time; Stage : Feedrate_Profile_Stage_Index) return Velocity is
       begin
          case Stage is
             when 1 =>
@@ -434,8 +390,7 @@ package body Motion is
                    24.0;
             when 8 =>
                return
-                 Velocity_At_Stage (T1, 7) +
-                 Cm * DT * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T1 * T3 + T2**2 + T2 * T3);
+                 Velocity_At_Stage (T1, 7) + Cm * DT * T1 * (2.0 * T1**2 + 3.0 * T1 * T2 + T1 * T3 + T2**2 + T2 * T3);
             when 9 =>
                return
                  Velocity_At_Stage (T4, 8) +
@@ -477,6 +432,8 @@ package body Motion is
       end Velocity_At_Stage;
 
    begin
+      pragma Assert (T <= Total_Time (Profile));
+
       if T < T1 then
          return Velocity_At_Stage (T, 1);
       elsif T < T1 + T2 then
@@ -511,15 +468,15 @@ package body Motion is
    end Velocity_At_Time;
 
    function Distance_At_Time
-     (T : Time; Profile : Acceleration_Profile_Times; Crackle_Limit : Crackle; Start_Vel : Velocity) return Length
+     (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle; Start_Vel : Velocity) return Length
    is
       T1 : constant Time    := Profile (1);
       T2 : constant Time    := Profile (2);
       T3 : constant Time    := Profile (3);
       T4 : constant Time    := Profile (4);
-      Cm : constant Crackle := Crackle_Limit;
+      Cm : constant Crackle := Start_Crackle;
 
-      function Distance_At_Stage (DT : Time; Stage : Acceleration_Profile_Stage_Index) return Length is
+      function Distance_At_Stage (DT : Time; Stage : Feedrate_Profile_Stage_Index) return Length is
       begin
          case Stage is
             when 1 =>
@@ -658,6 +615,8 @@ package body Motion is
       end Distance_At_Stage;
 
    begin
+      pragma Assert (T <= Total_Time (Profile));
+
       if T < T1 then
          return Distance_At_Stage (T, 1);
       elsif T < T1 + T2 then
@@ -690,4 +649,97 @@ package body Motion is
          return Distance_At_Stage (T - (7.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4), 15);
       end if;
    end Distance_At_Time;
+
+   function Crackle_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Crackle is
+   begin
+      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+
+      if T <= Total_Time (Profile.Accel) then
+         return Crackle_At_Time (Profile.Accel, T, Start_Crackle);
+      elsif T < Total_Time (Profile.Accel) + Profile.Coast then
+         return 0.0 * mm / s**5;
+      else
+         return Crackle_At_Time (Profile.Decel, T - (Total_Time (Profile.Accel) + Profile.Coast), -Start_Crackle);
+      end if;
+   end Crackle_At_Time;
+
+   function Snap_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Snap is
+   begin
+      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+
+      if T <= Total_Time (Profile.Accel) then
+         return Snap_At_Time (Profile.Accel, T, Start_Crackle);
+      elsif T < Total_Time (Profile.Accel) + Profile.Coast then
+         return 0.0 * mm / s**4;
+      else
+         return Snap_At_Time (Profile.Decel, T - (Total_Time (Profile.Accel) + Profile.Coast), -Start_Crackle);
+      end if;
+   end Snap_At_Time;
+
+   function Jerk_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Jerk is
+   begin
+      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+
+      if T <= Total_Time (Profile.Accel) then
+         return Jerk_At_Time (Profile.Accel, T, Start_Crackle);
+      elsif T < Total_Time (Profile.Accel) + Profile.Coast then
+         return 0.0 * mm / s**3;
+      else
+         return Jerk_At_Time (Profile.Decel, T - (Total_Time (Profile.Accel) + Profile.Coast), -Start_Crackle);
+      end if;
+   end Jerk_At_Time;
+
+   function Acceleration_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Acceleration is
+   begin
+      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+
+      if T <= Total_Time (Profile.Accel) then
+         return Acceleration_At_Time (Profile.Accel, T, Start_Crackle);
+      elsif T < Total_Time (Profile.Accel) + Profile.Coast then
+         return 0.0 * mm / s**2;
+      else
+         return Acceleration_At_Time (Profile.Decel, T - (Total_Time (Profile.Accel) + Profile.Coast), -Start_Crackle);
+      end if;
+   end Acceleration_At_Time;
+
+   function Velocity_At_Time
+     (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle; Start_Vel : Velocity) return Velocity
+   is
+      Mid_Vel : constant Velocity :=
+        Velocity_At_Time (Profile.Accel, Total_Time (Profile.Accel), Start_Crackle, Start_Vel);
+   begin
+      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+
+      if T <= Total_Time (Profile.Accel) then
+         return Velocity_At_Time (Profile.Accel, T, Start_Crackle, Start_Vel);
+      elsif T < Total_Time (Profile.Accel) + Profile.Coast then
+         return Mid_Vel;
+      else
+         return
+           Velocity_At_Time (Profile.Decel, T - (Total_Time (Profile.Accel) + Profile.Coast), -Start_Crackle, Mid_Vel);
+      end if;
+   end Velocity_At_Time;
+
+   function Distance_At_Time
+     (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle; Start_Vel : Velocity) return Length
+   is
+      Mid_Vel    : constant Velocity :=
+        Velocity_At_Time (Profile.Accel, Total_Time (Profile.Accel), Start_Crackle, Start_Vel);
+      Accel_Dist : constant Length   :=
+        Distance_At_Time (Profile.Accel, Total_Time (Profile.Accel), Start_Crackle, Start_Vel);
+      Mid_Dist   : constant Length   := Accel_Dist + Mid_Vel * (T - Total_Time (Profile.Accel));
+   begin
+      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+
+      if T <= Total_Time (Profile.Accel) then
+         return Distance_At_Time (Profile.Accel, T, Start_Crackle, Start_Vel);
+      elsif T < Total_Time (Profile.Accel) + Profile.Coast then
+         return Accel_Dist + Mid_Vel * (T - Total_Time (Profile.Accel));
+      else
+         return
+           Accel_Dist + Mid_Dist +
+           Distance_At_Time (Profile.Decel, T - (Total_Time (Profile.Accel) + Profile.Coast), -Start_Crackle, Mid_Vel);
+      end if;
+   end Distance_At_Time;
+
 end Motion;

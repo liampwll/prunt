@@ -7,3 +7,7 @@ maintainers = ["Liam Powell <liam@liampll.com>"]
 maintainers-logins = ["liampwll"]
 
 executables = ["prunt"]
+[[depends-on]]
+
+[environment.SPARKLIB_OBJECT_DIR]
+set = "${CRATE_ROOT}/obj/sparklib"
