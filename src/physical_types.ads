@@ -2,9 +2,7 @@ package Physical_Types with
   SPARK_Mode
 is
 
-   type Bounded_Long_Float is new Long_Float range -Long_Float'Large .. Long_Float'Large;
-
-   type Dimensioned_Float is new Bounded_Long_Float with
+   type Dimensioned_Float is new Long_Float with
      Dimension_System =>
       ((Unit_Name => Millimeter, Unit_Symbol => "mm", Dim_Symbol => "Length"),
        (Unit_Name => Second, Unit_Symbol => "s", Dim_Symbol => "Time"),

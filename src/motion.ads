@@ -40,6 +40,8 @@ private
    function Fast_Velocity_At_Max_Time
      (Profile : Feedrate_Profile_Times; Start_Crackle : Crackle; Start_Vel : Velocity) return Velocity;
 
+   function Total_Time (Times : Feedrate_Profile_Times) return Time;
+
    function Crackle_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Crackle;
    function Snap_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Snap;
    function Jerk_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Jerk;

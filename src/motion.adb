@@ -1,5 +1,5 @@
 with Motion.Planner;
--- with Motion.Executor;
+with Motion.Executor;
 
 package body Motion is
 
@@ -7,7 +7,7 @@ package body Motion is
    begin
       --  TODO: Perform validity checks here. No negative limits.
       Motion.Planner.Runner.Init (Config);
-      -- Motion.Executor.Runner.Init (Config);
+      Motion.Executor.Runner.Init (Config);
    end Init;
 
    procedure Enqueue (Pos : Position; Limits : Kinematic_Limits) is

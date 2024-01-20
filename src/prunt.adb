@@ -4,12 +4,14 @@ with Master_Manager;
 
 procedure Prunt is
    Limits : constant Motion.Kinematic_Limits :=
-     (Velocity_Max     => 100.0 * mm / s,
-      Acceleration_Max => 10.0 * mm / s**2,
-      Jerk_Max         => 50.0 * mm / s**3,
-      Snap_Max         => 250.0 * mm / s**4,
-      Crackle_Max      => 900.0 * mm / s**5,
-      Chord_Error_Max  => 1.0 * mm);
+     (Velocity_Max     => 20.0 * mm / s,
+      Acceleration_Max => 1_500.0 * mm / s**2,
+      Jerk_Max         => 100_000.0 * mm / s**3,
+      -- Snap_Max         => Snap'Large,
+      -- Crackle_Max      => Crackle'Large,
+      Snap_Max         => 20_000_000.0 * mm / s**4,
+      Crackle_Max      => 4_000_000_000.0 * mm / s**5,
+      Chord_Error_Max  => 0.01 * mm);
    Motion_Config : constant Motion.Config_Parameters :=
      (Max_Limits       => Limits,
       Limit_Scaler     => [others => 1.0],

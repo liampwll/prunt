@@ -6,7 +6,7 @@ with Ada.Exceptions;
 package body Motion.Planner is
 
    Config            : Config_Parameters;
-   Working           : aliased Working_Block;
+   Working           : aliased Execution_Block;
    PP_Last_Pos       : Position;
    PP_Corners        : Block_Plain_Corners (1 .. Corners_Index'Last);
    PP_Segment_Limits : Block_Segment_Limits (2 .. Corners_Index'Last);
@@ -14,36 +14,13 @@ package body Motion.Planner is
    package Elementary_Functions is new Ada.Numerics.Generic_Elementary_Functions (Dimensioned_Float);
    use Elementary_Functions;
 
-   function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position is
-      type Partial_Bezier is array (Bezier_Index range <>) of Scaled_Position;
-
-      function Recur (Bez : Partial_Bezier) return Scaled_Position is
-         Next_Bez : constant Partial_Bezier :=
-           [for I in Bez'First .. Bez'Last - 1 => Bez (I) + (Bez (I + 1) - Bez (I)) * T];
-      begin
-         if Next_Bez'Length = 1 then
-            return Next_Bez (Bezier_Index'First);
-         else
-            return Recur (Next_Bez);
-         end if;
-      end Recur;
-
+   function Curve_Corner_Distance (Start, Finish : Corners_Index) return Length is
    begin
-      return Recur ([for I in Bezier_Index => Bez (I)]);
-   end Compute_Bezier_Point;
-
-   function Curve_Corner_Distance (Start, Finish : Curve_Point_Set_Values) return Length is
-      Sum : Length := 0.0 * mm;
-   begin
-      for I in Start'First .. Start'Last - 1 loop
-         Sum := Sum + abs (Start (I) - Start (I + 1));
-      end loop;
-
-      for I in Finish'First .. Finish'Last - 1 loop
-         Sum := Sum + abs (Finish (I) - Finish (I + 1));
-      end loop;
-
-      return Sum + abs (Start (Start'Last) - Finish (Finish'First));
+      return
+        Working.Curve_Point_Sets (Start).Outgoing_Length + Working.Curve_Point_Sets (Finish).Incoming_Length +
+        abs
+        (Working.Curve_Point_Sets (Start).Outgoing (Working.Curve_Point_Sets (Start).Outgoing'Last) -
+         Working.Curve_Point_Sets (Finish).Incoming (Working.Curve_Point_Sets (Finish).Incoming'First));
    end Curve_Corner_Distance;
 
    procedure Preprocessor is
@@ -52,8 +29,8 @@ package body Motion.Planner is
       Working_N_Corners : Corners_Index with
         Address => Working.N_Corners'Address;
    begin
-      PP_Corners (1)                := PP_Last_Pos * Config.Limit_Scaler;
-      Working.Execution.Next_Master := Master_Manager.Motion_Master;
+      PP_Corners (1)      := PP_Last_Pos * Config.Limit_Scaler;
+      Working.Next_Master := Master_Manager.Motion_Master;
 
       loop
          exit when N_Corners = Corners_Index'Last;
@@ -86,18 +63,10 @@ package body Motion.Planner is
 
       --  This is hacky and not portable, but if we try to assign to the entire record as you normally would then GCC
       --  insists on creating a whole Working_Data on the stack.
-      Working_N_Corners := N_Corners;
-      declare
-         Execution_N_Corners : Corners_Index with
-           Address => Working.Execution.N_Corners'Address;
-      begin
-         --  This would probably be fine if it were just declared in the procedure declarations, but it is better to be
-         --  safe when we are doing something silly like this.
-         Execution_N_Corners := N_Corners;
-      end;
-      Working.Corners               := PP_Corners (1 .. N_Corners);
-      Working.Segment_Limits        := PP_Segment_Limits (2 .. N_Corners);
-      Working.Execution.Next_Master := Next_Master;
+      Working_N_Corners      := N_Corners;
+      Working.Corners        := PP_Corners (1 .. N_Corners);
+      Working.Segment_Limits := PP_Segment_Limits (2 .. N_Corners);
+      Working.Next_Master    := Next_Master;
    end Preprocessor;
 
    procedure Corner_Blender is
@@ -180,9 +149,7 @@ package body Motion.Planner is
          Deviation_Limit_Denominator : constant Dimensionless :=
            (130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0) * Sin (Secondary_Angle);
 
-         --  TODO: The following 0.5 is not needed for the first move in a block.
          Incoming_Limit : constant Length := 0.5 * Incoming_Length / (CPR_Sum + 1.0);
-         --  TODO: The following 0.5 is not needed for the last move in a block.
          Outgoing_Limit : constant Length := 0.5 * Outgoing_Length / (CPR_Sum + 1.0);
       begin
          if Deviation_Limit_Denominator = 0.0 then
@@ -301,28 +268,87 @@ package body Motion.Planner is
               Working.Shifted_Corners (I + 1),
               Working.Shifted_Corner_Error_Limits (I));
       end loop;
+
+      Working.Beziers (Working.Beziers'First) := [others => Working.Corners (Working.Beziers'First)];
+      Working.Beziers (Working.Beziers'Last) := [others => Working.Corners (Working.Beziers'Last)];
+      Working.Inverse_Curvatures (Working.Inverse_Curvatures'First) := 0.0 * mm;
+      Working.Inverse_Curvatures (Working.Inverse_Curvatures'Last)  := 0.0 * mm;
    end Corner_Blender;
 
    procedure Curve_Splitter is
+
+      function Curve_Length (Curve : Curve_Point_Set_Values) return Length is
+         Sum : Length := 0.0 * mm;
+      begin
+         for I in Curve'First .. Curve'Last - 1 loop
+            Sum := Sum + abs (Curve (I) - Curve (I + 1));
+         end loop;
+
+         return Sum;
+      end Curve_Length;
+
+      function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position is
+         type Partial_Bezier is array (Bezier_Index range <>) of Scaled_Position;
+
+         function Recur (Bez : Partial_Bezier) return Scaled_Position is
+            Next_Bez : constant Partial_Bezier :=
+            [for I in Bez'First .. Bez'Last - 1 => Bez (I) + (Bez (I + 1) - Bez (I)) * T];
+         begin
+            if Next_Bez'Length = 1 then
+               return Next_Bez (Bezier_Index'First);
+            else
+               return Recur (Next_Bez);
+            end if;
+         end Recur;
+
+      begin
+         return Recur ([for I in Bezier_Index => Bez (I)]);
+      end Compute_Bezier_Point;
+
+      function Solve_Points_Per_Side (Bez : Bezier) return Curve_Point_Set_Index is
+         Lower : Curve_Point_Set_Index := 2;
+         Upper : Curve_Point_Set_Index := Curve_Point_Set_Index'Last;
+         Mid   : Curve_Point_Set_Index;
+      begin
+         loop
+            Mid := Lower + (Upper - Lower) / 2;
+            exit when Lower = Upper;
+            if Curve_Splitter_Target_Step <=
+              abs (Compute_Bezier_Point (Bez, 0.0) - Compute_Bezier_Point (Bez, 0.5 / Dimensionless (Mid)))
+            then
+               Lower := Mid + 1;
+            else
+               Upper := Mid;
+            end if;
+         end loop;
+
+         return Mid;
+      end Solve_Points_Per_Side;
+
    begin
-      for I in Working.Execution.Curve_Point_Sets'Range loop
+      for I in Working.Curve_Point_Sets'Range loop
          --  TODO: Tune number of points based on curve to have bounded deviation.
          --  TODO: Is this putting a big record on the stack that we might want to get rid of?
-         Working.Execution.Curve_Point_Sets (I) := (Points_Per_Side => Curve_Point_Set_Index'Last, others => <>);
+         Working.Curve_Point_Sets (I) :=
+           (Points_Per_Side => Solve_Points_Per_Side (Working.Beziers (I)), others => <>);
 
-         for J in Working.Execution.Curve_Point_Sets (I).Incoming'Range loop
-            Working.Execution.Curve_Point_Sets (I).Incoming (J) :=
+         for J in Working.Curve_Point_Sets (I).Incoming'Range loop
+            Working.Curve_Point_Sets (I).Incoming (J) :=
               Compute_Bezier_Point
                 (Working.Beziers (I),
-                 Dimensionless (J) / Dimensionless (Working.Execution.Curve_Point_Sets (I).Points_Per_Side * 2));
+                 Dimensionless (J) / Dimensionless (Working.Curve_Point_Sets (I).Points_Per_Side * 2));
          end loop;
 
-         for J in Working.Execution.Curve_Point_Sets (I).Outgoing'Range loop
-            Working.Execution.Curve_Point_Sets (I).Outgoing (J) :=
+         for J in Working.Curve_Point_Sets (I).Outgoing'Range loop
+            Working.Curve_Point_Sets (I).Outgoing (J) :=
               Compute_Bezier_Point
                 (Working.Beziers (I),
-                 Dimensionless (J) / Dimensionless (Working.Execution.Curve_Point_Sets (I).Points_Per_Side * 2) + 0.5);
+                 Dimensionless (J) / Dimensionless (Working.Curve_Point_Sets (I).Points_Per_Side * 2) + 0.5);
          end loop;
+
+         --  These should be identical, but we could change the curve in the future.
+         Working.Curve_Point_Sets (I).Incoming_Length := Curve_Length (Working.Curve_Point_Sets (I).Incoming);
+         Working.Curve_Point_Sets (I).Outgoing_Length := Curve_Length (Working.Curve_Point_Sets (I).Outgoing);
       end loop;
    end Curve_Splitter;
 
@@ -352,14 +378,16 @@ package body Motion.Planner is
 
             Lower : Time := 0.0 * s;
             --  A maximum of 24 hours should be more than enough unless you are using Prunt to control a space probe or
-            --  a particle accelerator. It is not recommended to install Prunt on space probes or particle accelerators.
+            --  a particle accelerator. It is not recommended to install Prunt on space probes or particle
+            --  accelerators.
             Upper : Time := 86_400.0 * s;
 
             type Casted_Time is mod 2**64;
             function Cast_Time is new Ada.Unchecked_Conversion (Time, Casted_Time);
             function Cast_Time is new Ada.Unchecked_Conversion (Casted_Time, Time);
          begin
-            --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to check for that.
+            --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to check for
+            --  that.
             pragma Assert (Time'Size = 64);
             pragma Assert (Casted_Time'Size = 64);
             pragma Assert (Cast_Time (86_400.0 * s) = 4_680_673_776_000_565_248);
@@ -494,12 +522,15 @@ package body Motion.Planner is
             --  TODO: Add limit based on interpolation time.
             --  TODO: Snap and crackle limits currently do not match paper and are likely overly conservative.
 
+            --  The 0.97 here ensures that no feedrate profiles end up with a very small accel/decel part which can
+            --  lead to numerical errors that cause kinematic limits to be greatly exceeded for a single interpolation
+            --  period. If this is removed, then the sanity check in Feedrate_Profile_Generator also needs to be
+            --  removed.
+            --  TODO: Check whether this actually matters in practice.
             Optimal_Profile :=
               Optimal_Accel_For_Distance
                 (Working.Corner_Velocity_Limits (I - 1),
-                 Curve_Corner_Distance
-                   (Working.Execution.Curve_Point_Sets (I - 1).Outgoing,
-                    Working.Execution.Curve_Point_Sets (I).Incoming),
+                 Curve_Corner_Distance (I - 1, I),
                  Working.Segment_Limits (I).Acceleration_Max,
                  Working.Segment_Limits (I).Jerk_Max,
                  Working.Segment_Limits (I).Snap_Max,
@@ -508,24 +539,22 @@ package body Motion.Planner is
               Velocity'Min
                 (Limit,
                  Fast_Velocity_At_Max_Time
-                   (Optimal_Profile, Working.Segment_Limits (I).Crackle_Max, Working.Corner_Velocity_Limits (I - 1)));
+                   (Optimal_Profile,
+                    0.97 * Working.Segment_Limits (I).Crackle_Max,
+                    Working.Corner_Velocity_Limits (I - 1)));
 
             Working.Corner_Velocity_Limits (I) := Limit;
          end;
       end loop;
 
-      --  TODO: This seems wrong but it works. It seems like the starting velocity passed to Optimal_Accel_For_Distance
-      --  should be the end velocity rather than the start for deceleration.
       for I in reverse Working.Corner_Velocity_Limits'First + 1 .. Working.Corner_Velocity_Limits'Last - 1 loop
          declare
             Optimal_Profile : Feedrate_Profile_Times;
          begin
             Optimal_Profile                    :=
               Optimal_Accel_For_Distance
-                (Working.Corner_Velocity_Limits (I),
-                 Curve_Corner_Distance
-                   (Working.Execution.Curve_Point_Sets (I).Outgoing,
-                    Working.Execution.Curve_Point_Sets (I + 1).Incoming),
+                (Working.Corner_Velocity_Limits (I + 1),
+                 Curve_Corner_Distance (I, I + 1),
                  Working.Segment_Limits (I).Acceleration_Max,
                  Working.Segment_Limits (I).Jerk_Max,
                  Working.Segment_Limits (I).Snap_Max,
@@ -534,13 +563,10 @@ package body Motion.Planner is
               Velocity'Min
                 (Working.Corner_Velocity_Limits (I),
                  Fast_Velocity_At_Max_Time
-                   (Optimal_Profile, Working.Segment_Limits (I).Crackle_Max, Working.Corner_Velocity_Limits (I + 1)));
+                   (Optimal_Profile,
+                    0.97 * Working.Segment_Limits (I).Crackle_Max,
+                    Working.Corner_Velocity_Limits (I + 1)));
          end;
-      end loop;
-
-      for I in Working.Corner_Velocity_Limits'Range loop
-         --  Add a small margin to allow for numerical error.
-         Working.Corner_Velocity_Limits (I) := Working.Corner_Velocity_Limits (I) * 0.99;
       end loop;
    end Kinematic_Limiter;
 
@@ -570,14 +596,16 @@ package body Motion.Planner is
 
             Lower : Time := 0.0 * s;
             --  A maximum of 24 hours should be more than enough unless you are using Prunt to control a space probe or
-            --  a particle accelerator. It is not recommended to install Prunt on space probes or particle accelerators.
+            --  a particle accelerator. It is not recommended to install Prunt on space probes or particle
+            -- accelerators.
             Upper : Time := 86_400.0 * s;
 
             type Casted_Time is mod 2**64;
             function Cast_Time is new Ada.Unchecked_Conversion (Time, Casted_Time);
             function Cast_Time is new Ada.Unchecked_Conversion (Casted_Time, Time);
          begin
-            --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to check for that.
+            --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to check for
+            --  that.
             pragma Assert (Time'Size = 64);
             pragma Assert (Casted_Time'Size = 64);
             pragma Assert (Cast_Time (86_400.0 * s) = 4_680_673_776_000_565_248);
@@ -687,33 +715,34 @@ package body Motion.Planner is
       end Optimal_Accel_For_Delta_V;
 
    begin
-      for I in Working.Execution.Feedrate_Profiles'Range loop
+      for I in Working.Feedrate_Profiles'Range loop
          declare
-            Profile          : constant Feedrate_Profile_Times :=
+            Profile                : constant Feedrate_Profile_Times :=
               Optimal_Accel_For_Delta_V
                 (Working.Corner_Velocity_Limits (I - 1) - Working.Corner_Velocity_Limits (I),
                  Working.Segment_Limits (I).Acceleration_Max,
                  Working.Segment_Limits (I).Jerk_Max,
                  Working.Segment_Limits (I).Snap_Max,
                  Working.Segment_Limits (I).Crackle_Max);
-            Profile_Distance : constant Length                 :=
+            Accel_Profile_Distance : constant Length                 :=
               Fast_Distance_At_Max_Time
                 (Profile, Working.Segment_Limits (I).Crackle_Max, Working.Corner_Velocity_Limits (I - 1));
-            Curve_Distance   : constant Length                 :=
-              Curve_Corner_Distance
-                (Working.Execution.Curve_Point_Sets (I - 1).Outgoing, Working.Execution.Curve_Point_Sets (I).Incoming);
+            Decel_Profile_Distance : constant Length                 :=
+              Fast_Distance_At_Max_Time
+                (Profile, -Working.Segment_Limits (I).Crackle_Max, Working.Corner_Velocity_Limits (I - 1));
+            Curve_Distance         : constant Length                 := Curve_Corner_Distance (I - 1, I);
          begin
-            pragma Assert (Curve_Distance >= Profile_Distance, "Planned velocity not reachable in given distance.");
+            pragma Assert (Curve_Distance < Length'Min (Accel_Profile_Distance, Decel_Profile_Distance));
          end;
 
-         Working.Execution.Feedrate_Profiles (I).Accel :=
+         Working.Feedrate_Profiles (I).Accel :=
            Optimal_Accel_For_Delta_V
              (Working.Corner_Velocity_Limits (I - 1) - Working.Segment_Limits (I).Velocity_Max,
               Working.Segment_Limits (I).Acceleration_Max,
               Working.Segment_Limits (I).Jerk_Max,
               Working.Segment_Limits (I).Snap_Max,
               Working.Segment_Limits (I).Crackle_Max);
-         Working.Execution.Feedrate_Profiles (I).Decel :=
+         Working.Feedrate_Profiles (I).Decel :=
            Optimal_Accel_For_Delta_V
              (Working.Corner_Velocity_Limits (I) - Working.Segment_Limits (I).Velocity_Max,
               Working.Segment_Limits (I).Acceleration_Max,
@@ -724,29 +753,28 @@ package body Motion.Planner is
          declare
             Accel_Distance : Length          :=
               Fast_Distance_At_Max_Time
-                (Working.Execution.Feedrate_Profiles (I).Accel,
+                (Working.Feedrate_Profiles (I).Accel,
                  Working.Segment_Limits (I).Crackle_Max,
                  Working.Corner_Velocity_Limits (I - 1));
+            Coast_Velocity : Velocity        := Working.Segment_Limits (I).Velocity_Max;
             Decel_Distance : Length          :=
               Fast_Distance_At_Max_Time
-                (Working.Execution.Feedrate_Profiles (I).Accel,
-                 Working.Segment_Limits (I).Crackle_Max,
-                 Working.Corner_Velocity_Limits (I));
-            Curve_Distance : constant Length :=
-              Curve_Corner_Distance
-                (Working.Execution.Curve_Point_Sets (I - 1).Outgoing, Working.Execution.Curve_Point_Sets (I).Incoming);
+                (Working.Feedrate_Profiles (I).Decel, -Working.Segment_Limits (I).Crackle_Max, Coast_Velocity);
+            Curve_Distance : constant Length := Curve_Corner_Distance (I - 1, I);
          begin
             if Accel_Distance + Decel_Distance <= Curve_Distance then
-               Working.Execution.Feedrate_Profiles (I).Coast :=
-                 (Curve_Distance - Accel_Distance - Decel_Distance) / Working.Segment_Limits (I).Velocity_Max;
+               Working.Feedrate_Profiles (I).Coast :=
+                 (Curve_Distance - Accel_Distance - Decel_Distance) / Coast_Velocity;
             else
-               Working.Execution.Feedrate_Profiles (I).Coast := 0.0 * s;
+               Working.Feedrate_Profiles (I).Coast := 0.0 * s;
                declare
                   type Casted_Vel is mod 2**64;
                   function Cast_Vel is new Ada.Unchecked_Conversion (Velocity, Casted_Vel);
                   function Cast_Vel is new Ada.Unchecked_Conversion (Casted_Vel, Velocity);
                   Upper : Velocity := Working.Segment_Limits (I).Velocity_Max;
-                  Lower : Velocity := Working.Corner_Velocity_Limits (I);
+                  -- Lower : Velocity := Working.Corner_Velocity_Limits (I);
+                  Lower : Velocity :=
+                    Velocity'Max (Working.Corner_Velocity_Limits (I - 1), Working.Corner_Velocity_Limits (I));
                   Mid   : Velocity;
                begin
                   --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to check
@@ -760,14 +788,14 @@ package body Motion.Planner is
                      Mid := Cast_Vel ((Cast_Vel (Lower) + Cast_Vel (Upper)) / 2);
                      exit when Lower = Mid or Upper = Mid;
 
-                     Working.Execution.Feedrate_Profiles (I).Accel :=
+                     Working.Feedrate_Profiles (I).Accel :=
                        Optimal_Accel_For_Delta_V
                          (Working.Corner_Velocity_Limits (I - 1) - Mid,
                           Working.Segment_Limits (I).Acceleration_Max,
                           Working.Segment_Limits (I).Jerk_Max,
                           Working.Segment_Limits (I).Snap_Max,
                           Working.Segment_Limits (I).Crackle_Max);
-                     Working.Execution.Feedrate_Profiles (I).Decel :=
+                     Working.Feedrate_Profiles (I).Decel :=
                        Optimal_Accel_For_Delta_V
                          (Working.Corner_Velocity_Limits (I) - Mid,
                           Working.Segment_Limits (I).Acceleration_Max,
@@ -777,12 +805,12 @@ package body Motion.Planner is
 
                      Accel_Distance :=
                        Fast_Distance_At_Max_Time
-                         (Working.Execution.Feedrate_Profiles (I).Accel,
+                         (Working.Feedrate_Profiles (I).Accel,
                           Working.Segment_Limits (I).Crackle_Max,
                           Working.Corner_Velocity_Limits (I - 1));
                      Decel_Distance :=
                        Fast_Distance_At_Max_Time
-                         (Working.Execution.Feedrate_Profiles (I).Decel,
+                         (Working.Feedrate_Profiles (I).Decel,
                           Working.Segment_Limits (I).Crackle_Max,
                           Working.Corner_Velocity_Limits (I));
 
@@ -811,6 +839,7 @@ package body Motion.Planner is
          Curve_Splitter;
          Kinematic_Limiter;
          Feedrate_Profile_Generator;
+         Execution_Block_Queue.Enqueue (Working);
       end loop;
    exception
       when E : others =>
