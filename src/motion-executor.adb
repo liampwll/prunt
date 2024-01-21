@@ -82,7 +82,7 @@ package body Motion.Executor is
                     Last_Distance + abs (Working.Curve_Point_Sets (Segment - 1).Outgoing (I) - Last_Point);
                   Distance_To_Go := Distance - Last_Distance;
                   Last_Point     := Working.Curve_Point_Sets (Segment - 1).Outgoing (I);
-                  exit when I = Working.Curve_Point_Sets (Segment - 1).Outgoing'Last;
+                  exit when I = Working.Curve_Point_Sets (Segment - 1).Points_Per_Side;
                   I := I + 1;
                end if;
             end loop;
@@ -103,7 +103,7 @@ package body Motion.Executor is
                Last_Distance := Last_Distance + abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point);
                Distance_To_Go := Distance - Last_Distance;
                Last_Point     := Working.Curve_Point_Sets (Segment).Incoming (I);
-               exit when I = Working.Curve_Point_Sets (Segment).Incoming'Last;
+               exit when I = Working.Curve_Point_Sets (Segment).Points_Per_Side;
                I := I + 1;
             end if;
          end loop;
@@ -116,7 +116,7 @@ package body Motion.Executor is
       Last_End_Time : Time := 0.0 * s;
       Current_Time  : Time := 0.0 * s;
    begin
-      for I in Working.Feedrate_Profiles'Range loop
+      for I in 2 .. Working.N_Corners loop
          Curve_Walker.Reset_For_Segment (I);
          while Current_Time < Total_Time (Working.Feedrate_Profiles (I)) loop
             declare

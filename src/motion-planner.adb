@@ -6,10 +6,10 @@ with Ada.Exceptions;
 package body Motion.Planner is
 
    Config            : Config_Parameters;
-   Working           : aliased Execution_Block;
+   Working           : Execution_Block;
    PP_Last_Pos       : Position;
-   PP_Corners        : Block_Plain_Corners (1 .. Corners_Index'Last);
-   PP_Segment_Limits : Block_Segment_Limits (2 .. Corners_Index'Last);
+   PP_Corners        : Block_Plain_Corners;
+   PP_Segment_Limits : Block_Segment_Limits;
 
    package Elementary_Functions is new Ada.Numerics.Generic_Elementary_Functions (Dimensioned_Float);
    use Elementary_Functions;
@@ -19,15 +19,13 @@ package body Motion.Planner is
       return
         Working.Curve_Point_Sets (Start).Outgoing_Length + Working.Curve_Point_Sets (Finish).Incoming_Length +
         abs
-        (Working.Curve_Point_Sets (Start).Outgoing (Working.Curve_Point_Sets (Start).Outgoing'Last) -
-         Working.Curve_Point_Sets (Finish).Incoming (Working.Curve_Point_Sets (Finish).Incoming'First));
+        (Working.Curve_Point_Sets (Start).Outgoing (Working.Curve_Point_Sets (Start).Points_Per_Side) -
+         Working.Curve_Point_Sets (Finish).Incoming (1));
    end Curve_Corner_Distance;
 
    procedure Preprocessor is
       Next_Master       : Master_Manager.Master := Master_Manager.Motion_Master;
       N_Corners         : Corners_Index         := 1;
-      Working_N_Corners : Corners_Index with
-        Address => Working.N_Corners'Address;
    begin
       PP_Corners (1)      := PP_Last_Pos * Config.Limit_Scaler;
       Working.Next_Master := Master_Manager.Motion_Master;
@@ -47,8 +45,8 @@ package body Motion.Planner is
                   exit;
                when Move_Kind =>
                   PP_Last_Pos                   := Next_Command.Pos;
-                  PP_Corners (N_Corners)        := Next_Command.Pos * Config.Limit_Scaler;
-                  PP_Segment_Limits (N_Corners) :=
+                  Working.Corners (N_Corners)        := Next_Command.Pos * Config.Limit_Scaler;
+                  Working.Segment_Limits (N_Corners) :=
                     (Velocity_Max => Velocity'Min (Next_Command.Limits.Velocity_Max, Config.Max_Limits.Velocity_Max),
                      Acceleration_Max =>
                        Acceleration'Min (Next_Command.Limits.Acceleration_Max, Config.Max_Limits.Acceleration_Max),
@@ -63,9 +61,7 @@ package body Motion.Planner is
 
       --  This is hacky and not portable, but if we try to assign to the entire record as you normally would then GCC
       --  insists on creating a whole Working_Data on the stack.
-      Working_N_Corners      := N_Corners;
-      Working.Corners        := PP_Corners (1 .. N_Corners);
-      Working.Segment_Limits := PP_Segment_Limits (2 .. N_Corners);
+      Working.N_Corners      := N_Corners;
       Working.Next_Master    := Next_Master;
    end Preprocessor;
 
@@ -210,24 +206,24 @@ package body Motion.Planner is
 
       Last_Comp_Error : Length := 0.0 * mm;
    begin
-      for I in Working.Corners'Range loop
+      for I in 1 .. Working.N_Corners loop
          Working.Shifted_Corners (I) := Working.Corners (I);
       end loop;
 
-      for I in Working.Shifted_Corner_Error_Limits'First + 1 .. Working.Shifted_Corner_Error_Limits'Last - 1 loop
+      for I in 2 .. Working.N_Corners - 1 loop
          Working.Shifted_Corner_Error_Limits (I) :=
            Length'Min (Working.Segment_Limits (I).Chord_Error_Max, Working.Segment_Limits (I + 1).Chord_Error_Max);
       end loop;
-      Working.Shifted_Corner_Error_Limits (Working.Shifted_Corner_Error_Limits'First) := 0.0 * mm;
-      Working.Shifted_Corner_Error_Limits (Working.Shifted_Corner_Error_Limits'Last)  := 0.0 * mm;
+      Working.Shifted_Corner_Error_Limits (1) := 0.0 * mm;
+      Working.Shifted_Corner_Error_Limits (Working.N_Corners)  := 0.0 * mm;
 
-      Working.Midpoints (Working.Midpoints'First) := Working.Corners (Working.Midpoints'First);
-      Working.Midpoints (Working.Midpoints'Last)  := Working.Corners (Working.Midpoints'Last);
+      Working.Midpoints (1) := Working.Corners (1);
+      Working.Midpoints (Working.N_Corners)  := Working.Corners (Working.N_Corners);
 
       loop
          Last_Comp_Error := 0.0 * mm;
 
-         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+         for I in 2 .. Working.N_Corners - 1 loop
             declare
                Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
                Corner : constant Scaled_Position := Working.Shifted_Corners (I);
@@ -241,11 +237,11 @@ package body Motion.Planner is
 
          exit when Last_Comp_Error <= Corner_Blender_Max_Computational_Error;
 
-         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+         for I in 2 .. Working.N_Corners - 1 loop
             Working.Shifted_Corners (I) := @ + (Working.Corners (I) - Working.Midpoints (I));
          end loop;
 
-         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+         for I in 2 .. Working.N_Corners - 1 loop
             Working.Shifted_Corner_Error_Limits (I) :=
               abs Dot
                 (Working.Corners (I) - Working.Shifted_Corners (I),
@@ -254,7 +250,7 @@ package body Motion.Planner is
          end loop;
       end loop;
 
-      for I in Working.Beziers'First + 1 .. Working.Beziers'Last - 1 loop
+         for I in 2 .. Working.N_Corners - 1 loop
          Working.Beziers (I)            :=
            Compute_Control_Points
              (Working.Shifted_Corners (I - 1),
@@ -269,18 +265,18 @@ package body Motion.Planner is
               Working.Shifted_Corner_Error_Limits (I));
       end loop;
 
-      Working.Beziers (Working.Beziers'First) := [others => Working.Corners (Working.Beziers'First)];
-      Working.Beziers (Working.Beziers'Last) := [others => Working.Corners (Working.Beziers'Last)];
-      Working.Inverse_Curvatures (Working.Inverse_Curvatures'First) := 0.0 * mm;
-      Working.Inverse_Curvatures (Working.Inverse_Curvatures'Last)  := 0.0 * mm;
+      Working.Beziers (1) := [others => Working.Corners (1)];
+      Working.Beziers (Working.N_Corners) := [others => Working.Corners (Working.N_Corners)];
+      Working.Inverse_Curvatures (1) := 0.0 * mm;
+      Working.Inverse_Curvatures (Working.N_Corners)  := 0.0 * mm;
    end Corner_Blender;
 
    procedure Curve_Splitter is
 
-      function Curve_Length (Curve : Curve_Point_Set_Values) return Length is
+      function Curve_Length (Curve : Curve_Point_Set_Values; Points_Per_Side : Curve_Point_Set_Index) return Length is
          Sum : Length := 0.0 * mm;
       begin
-         for I in Curve'First .. Curve'Last - 1 loop
+         for I in 1 .. Points_Per_Side - 1 loop
             Sum := Sum + abs (Curve (I) - Curve (I + 1));
          end loop;
 
@@ -320,33 +316,32 @@ package body Motion.Planner is
       end Solve_Points_Per_Side;
 
    begin
-      for I in Working.Curve_Point_Sets'Range loop
+      for I in 1 .. Working.N_Corners loop
          --  declare
          --     Points_Per_Side : Curve_Point_Set_Index with
          --       Address => Working.Curve_Point_Sets (I).Points_Per_Side'Address;
          --  begin
          --     Points_Per_Side := Solve_Points_Per_Side (Working.Beziers (I));
          --  end;
-         Working.Curve_Point_Sets (I) :=
-           (Points_Per_Side => Solve_Points_Per_Side (Working.Beziers (I)), others => <>);
+         Working.Curve_Point_Sets (I).Points_Per_Side := Solve_Points_Per_Side (Working.Beziers (I));
 
-         for J in Working.Curve_Point_Sets (I).Incoming'Range loop
+         for J in 1 .. Working.Curve_Point_Sets (I).Points_Per_Side loop
             Working.Curve_Point_Sets (I).Incoming (J) :=
               Compute_Bezier_Point
                 (Working.Beziers (I),
-                 Dimensionless (J) / Dimensionless (Working.Curve_Point_Sets (I).Points_Per_Side * 2));
+                 0.5 * (Dimensionless (J) - 1.0) / Dimensionless (Working.Curve_Point_Sets (I).Points_Per_Side - 1));
          end loop;
 
-         for J in Working.Curve_Point_Sets (I).Outgoing'Range loop
+         for J in 1 .. Working.Curve_Point_Sets (I).Points_Per_Side loop
             Working.Curve_Point_Sets (I).Outgoing (J) :=
               Compute_Bezier_Point
                 (Working.Beziers (I),
-                 Dimensionless (J) / Dimensionless (Working.Curve_Point_Sets (I).Points_Per_Side * 2) + 0.5);
+                 0.5 * (Dimensionless (J) - 1.0) / Dimensionless (Working.Curve_Point_Sets (I).Points_Per_Side - 1) + 0.5);
          end loop;
 
          --  These should be identical, but we could change the curve in the future.
-         Working.Curve_Point_Sets (I).Incoming_Length := Curve_Length (Working.Curve_Point_Sets (I).Incoming);
-         Working.Curve_Point_Sets (I).Outgoing_Length := Curve_Length (Working.Curve_Point_Sets (I).Outgoing);
+         Working.Curve_Point_Sets (I).Incoming_Length := Curve_Length (Working.Curve_Point_Sets (I).Incoming, Working.Curve_Point_Sets (I).Points_Per_Side);
+         Working.Curve_Point_Sets (I).Outgoing_Length := Curve_Length (Working.Curve_Point_Sets (I).Outgoing, Working.Curve_Point_Sets (I).Points_Per_Side);
       end loop;
    end Curve_Splitter;
 
@@ -486,10 +481,10 @@ package body Motion.Planner is
       end Optimal_Accel_For_Distance;
 
    begin
-      Working.Corner_Velocity_Limits (Working.Corner_Velocity_Limits'First) := 0.0 * mm / s;
-      Working.Corner_Velocity_Limits (Working.Corner_Velocity_Limits'Last)  := 0.0 * mm / s;
+      Working.Corner_Velocity_Limits (1) := 0.0 * mm / s;
+      Working.Corner_Velocity_Limits (Working.N_Corners)  := 0.0 * mm / s;
 
-      for I in Working.Corner_Velocity_Limits'First + 1 .. Working.Corner_Velocity_Limits'Last - 1 loop
+      for I in 2 .. Working.N_Corners - 1 loop
          declare
             Limit           : Velocity;
             Optimal_Profile : Feedrate_Profile_Times;
@@ -545,7 +540,7 @@ package body Motion.Planner is
          end;
       end loop;
 
-      for I in reverse Working.Corner_Velocity_Limits'First + 1 .. Working.Corner_Velocity_Limits'Last - 1 loop
+      for I in 2 .. Working.N_Corners - 1 loop
          declare
             Optimal_Profile : Feedrate_Profile_Times;
          begin
@@ -713,7 +708,7 @@ package body Motion.Planner is
       end Optimal_Accel_For_Delta_V;
 
    begin
-      for I in Working.Feedrate_Profiles'Range loop
+      for I in 2 .. Working.N_Corners loop
          declare
             Profile                : constant Feedrate_Profile_Times :=
               Optimal_Accel_For_Delta_V
