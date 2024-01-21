@@ -11,3 +11,17 @@ executables = ["prunt"]
 
 [environment.SPARKLIB_OBJECT_DIR]
 set = "${CRATE_ROOT}/obj/sparklib"
+
+[build-switches]
+release.optimization = [
+  "-O3",
+  "-gnatn",
+  "-fdata-sections",
+  "-ffunction-sections",
+  "-march=native",
+  "-mtune=native",
+  "-flto=auto",
+  "-fuse-linker-plugin",
+  "-fno-pie",
+  "-fno-pic"
+]

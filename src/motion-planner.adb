@@ -288,21 +288,15 @@ package body Motion.Planner is
       end Curve_Length;
 
       function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position is
-         type Partial_Bezier is array (Bezier_Index range <>) of Scaled_Position;
-
-         function Recur (Bez : Partial_Bezier) return Scaled_Position is
-            Next_Bez : constant Partial_Bezier :=
-            [for I in Bez'First .. Bez'Last - 1 => Bez (I) + (Bez (I + 1) - Bez (I)) * T];
-         begin
-            if Next_Bez'Length = 1 then
-               return Next_Bez (Bezier_Index'First);
-            else
-               return Recur (Next_Bez);
-            end if;
-         end Recur;
-
+         Bez_2 : Bezier := Bez;
       begin
-         return Recur ([for I in Bezier_Index => Bez (I)]);
+         for J in reverse Bez_2'First .. Bez_2'Last - 1 loop
+            for I in Bez_2'First .. J loop
+               Bez_2 (I) := Bez_2 (I) + (Bez_2 (I + 1) - Bez_2 (I)) * T;
+            end loop;
+         end loop;
+
+         return Bez_2 (Bez_2'First);
       end Compute_Bezier_Point;
 
       function Solve_Points_Per_Side (Bez : Bezier) return Curve_Point_Set_Index is
@@ -327,8 +321,12 @@ package body Motion.Planner is
 
    begin
       for I in Working.Curve_Point_Sets'Range loop
-         --  TODO: Tune number of points based on curve to have bounded deviation.
-         --  TODO: Is this putting a big record on the stack that we might want to get rid of?
+         --  declare
+         --     Points_Per_Side : Curve_Point_Set_Index with
+         --       Address => Working.Curve_Point_Sets (I).Points_Per_Side'Address;
+         --  begin
+         --     Points_Per_Side := Solve_Points_Per_Side (Working.Beziers (I));
+         --  end;
          Working.Curve_Point_Sets (I) :=
            (Points_Per_Side => Solve_Points_Per_Side (Working.Beziers (I)), others => <>);
 
@@ -394,7 +392,7 @@ package body Motion.Planner is
             pragma Assert (Cast_Time (0.123_45 * s) = 4_593_559_930_647_147_132);
 
             loop
-               Result (Variable) := Cast_Time ((Cast_Time (Lower) + Cast_Time (Upper)) / 2);
+               Result (Variable) := Cast_Time (Cast_Time (Lower) + (Cast_Time (Upper) - Cast_Time (Lower)) / 2);
                exit when Lower = Result (Variable) or Upper = Result (Variable);
                if Fast_Distance_At_Max_Time (Result, Cm, Vs) <= D then
                   Lower := Result (Variable);
@@ -612,7 +610,7 @@ package body Motion.Planner is
             pragma Assert (Cast_Time (0.123_45 * s) = 4_593_559_930_647_147_132);
 
             loop
-               Result (Variable) := Cast_Time ((Cast_Time (Lower) + Cast_Time (Upper)) / 2);
+               Result (Variable) := Cast_Time (Cast_Time (Lower) + (Cast_Time (Upper) - Cast_Time (Lower)) / 2);
                exit when Lower = Result (Variable) or Upper = Result (Variable);
                if Fast_Velocity_At_Max_Time (Result, Cm, 0.0 * mm / s) <= Target then
                   Lower := Result (Variable);
@@ -785,7 +783,7 @@ package body Motion.Planner is
                   pragma Assert (Cast_Vel (0.123_45 * mm / s) = 4_593_559_930_647_147_132);
 
                   loop
-                     Mid := Cast_Vel ((Cast_Vel (Lower) + Cast_Vel (Upper)) / 2);
+                     Mid := Cast_Vel (Cast_Vel (Lower) + (Cast_Vel (Upper) - Cast_Vel (Lower)) / 2);
                      exit when Lower = Mid or Upper = Mid;
 
                      Working.Feedrate_Profiles (I).Accel :=

@@ -34,6 +34,7 @@ package body Motion is
       Cm : constant Crackle  := Start_Crackle;
       Vs : constant Velocity := Start_Vel;
    begin
+      --  Equivalent to: return Distance_At_Time (Profile, Total_Time(Profile), Start_Crackle, Start_Vel);
       return
         (Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4) / 2.0) *
         (8.0 * T1 + 4.0 * T2 + 2.0 * T3 + T4);
@@ -49,12 +50,18 @@ package body Motion is
       Cm : constant Crackle  := Start_Crackle;
       Vs : constant Velocity := Start_Vel;
    begin
+      --  Equivalent to: return Velocity_At_Time (Profile, Total_Time(Profile), Start_Crackle, Start_Vel);
       return Vs + Cm * T1 * (T1 + T2) * (2.0 * T1 + T2 + T3) * (4.0 * T1 + 2.0 * T2 + T3 + T4);
    end Fast_Velocity_At_Max_Time;
 
    function Total_Time (Times : Feedrate_Profile_Times) return Time is
    begin
       return 8.0 * Times (1) + 4.0 * Times (2) + 2.0 * Times (3) + Times (4);
+   end Total_Time;
+   
+   function Total_Time (Profile : Feedrate_Profile) return Time is
+   begin
+      return Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel);
    end Total_Time;
 
    function Crackle_At_Time (Profile : Feedrate_Profile_Times; T : Time; Start_Crackle : Crackle) return Crackle is
@@ -652,7 +659,7 @@ package body Motion is
 
    function Crackle_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Crackle is
    begin
-      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+      pragma Assert (T <= Total_Time (Profile));
 
       if T <= Total_Time (Profile.Accel) then
          return Crackle_At_Time (Profile.Accel, T, Start_Crackle);
@@ -666,6 +673,7 @@ package body Motion is
    function Snap_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Snap is
    begin
       pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+      pragma Assert (T <= Total_Time (Profile));
 
       if T <= Total_Time (Profile.Accel) then
          return Snap_At_Time (Profile.Accel, T, Start_Crackle);
@@ -678,7 +686,7 @@ package body Motion is
 
    function Jerk_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Jerk is
    begin
-      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+      pragma Assert (T <= Total_Time (Profile));
 
       if T <= Total_Time (Profile.Accel) then
          return Jerk_At_Time (Profile.Accel, T, Start_Crackle);
@@ -691,7 +699,7 @@ package body Motion is
 
    function Acceleration_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Acceleration is
    begin
-      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+      pragma Assert (T <= Total_Time (Profile));
 
       if T <= Total_Time (Profile.Accel) then
          return Acceleration_At_Time (Profile.Accel, T, Start_Crackle);
@@ -708,7 +716,7 @@ package body Motion is
       Mid_Vel : constant Velocity :=
         Velocity_At_Time (Profile.Accel, Total_Time (Profile.Accel), Start_Crackle, Start_Vel);
    begin
-      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+      pragma Assert (T <= Total_Time (Profile));
 
       if T <= Total_Time (Profile.Accel) then
          return Velocity_At_Time (Profile.Accel, T, Start_Crackle, Start_Vel);
@@ -727,9 +735,9 @@ package body Motion is
         Velocity_At_Time (Profile.Accel, Total_Time (Profile.Accel), Start_Crackle, Start_Vel);
       Accel_Dist : constant Length   :=
         Distance_At_Time (Profile.Accel, Total_Time (Profile.Accel), Start_Crackle, Start_Vel);
-      Mid_Dist   : constant Length   := Accel_Dist + Mid_Vel * (T - Total_Time (Profile.Accel));
+      Mid_Dist   : constant Length   := Mid_Vel * Profile.Coast;
    begin
-      pragma Assert (T <= Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel));
+      pragma Assert (T <= Total_Time (Profile));
 
       if T <= Total_Time (Profile.Accel) then
          return Distance_At_Time (Profile.Accel, T, Start_Crackle, Start_Vel);

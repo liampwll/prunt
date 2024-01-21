@@ -58,6 +58,8 @@ private
       Decel : Feedrate_Profile_Times;
    end record;
 
+   function Total_Time (Profile : Feedrate_Profile) return Time;
+
    function Crackle_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Crackle;
    function Snap_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Snap;
    function Jerk_At_Time (Profile : Feedrate_Profile; T : Time; Start_Crackle : Crackle) return Jerk;

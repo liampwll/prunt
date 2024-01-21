@@ -11,11 +11,12 @@ procedure Prunt is
       -- Crackle_Max      => Crackle'Large,
       Snap_Max         => 20_000_000.0 * mm / s**4,
       Crackle_Max      => 4_000_000_000.0 * mm / s**5,
-      Chord_Error_Max  => 0.01 * mm);
+      Chord_Error_Max  => 10.0 * mm);
    Motion_Config : constant Motion.Config_Parameters :=
      (Max_Limits       => Limits,
       Limit_Scaler     => [others => 1.0],
-      Initial_Position => [others => 0.0 * mm]);
+      -- Initial_Position => [others => 0.0 * mm]);
+      Initial_Position => [X_Axis => 69.0 * mm, Y_Axis => 50.0 * mm, others => 0.0 * mm]);
 begin
    Motion.Init (Motion_Config);
    --  Motion.Enqueue ([others => 10.0 * mm], 1.0 * mm / s);
@@ -33,7 +34,18 @@ begin
    --  Motion.Enqueue ([X_Axis => 56.634 * mm, Y_Axis => 47.570 * mm, others => 0.0 * mm]);
    --  Motion.Enqueue ([X_Axis => 57.451 * mm, Y_Axis => 47.685 * mm, others => 0.0 * mm]);
    --  Motion.Flush (Master_Manager.Motion_Master);
-
+   
+   Motion.Enqueue ([X_Axis => 66.0 * mm, Y_Axis => 61.0 * mm, others => 0.0 * mm], Limits);
+   Motion.Enqueue ([X_Axis => 56.0 * mm, Y_Axis => 68.0 * mm, others => 0.0 * mm], Limits);
+   Motion.Enqueue ([X_Axis => 44.0 * mm, Y_Axis => 68.0 * mm, others => 0.0 * mm], (Limits with delta Chord_Error_Max => 0.0 * mm));
+   Motion.Enqueue ([X_Axis => 34.0 * mm, Y_Axis => 61.0 * mm, others => 0.0 * mm], (Limits with delta Chord_Error_Max => 0.0 * mm));
+   Motion.Enqueue ([X_Axis => 31.0 * mm, Y_Axis => 50.0 * mm, others => 0.0 * mm], (Limits with delta Chord_Error_Max => 0.0 * mm));
+   Motion.Enqueue ([X_Axis => 34.0 * mm, Y_Axis => 39.0 * mm, others => 0.0 * mm], Limits);
+   Motion.Enqueue ([X_Axis => 44.0 * mm, Y_Axis => 32.0 * mm, others => 0.0 * mm], Limits);
+   Motion.Enqueue ([X_Axis => 56.0 * mm, Y_Axis => 32.0 * mm, others => 0.0 * mm], Limits);
+   Motion.Flush (Master_Manager.Motion_Master);
+   -- delay 1000.0;
+   
    Motion.Enqueue ([X_Axis => 30.251 * mm, Y_Axis => 49.101 * mm, others => 0.0 * mm], Limits);
    Motion.Enqueue ([X_Axis => 30.394 * mm, Y_Axis => 49.027 * mm, others => 0.0 * mm], Limits);
    Motion.Enqueue ([X_Axis => 30.713 * mm, Y_Axis => 48.944 * mm, others => 0.0 * mm], Limits);
