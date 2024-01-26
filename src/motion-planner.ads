@@ -28,9 +28,10 @@ private package Motion.Planner is
    type Block_Segment_Limits is array (Corners_Index range <>) of Kinematic_Limits;
 
    --  Corner_Blender
-   Corner_Blender_Max_Computational_Error : constant Length := 0.000_000_01 * mm;
+   Corner_Blender_Max_Computational_Error      : constant Length := 0.000_000_01 * mm;
+   Corner_Blender_Max_Secondary_Angle_To_Blend : constant Angle  := 89.5 * deg;
 
-   type Bezier_Index is range 1 .. 10;
+   type Bezier_Index is range 0 .. 15;
    type Bezier is array (Bezier_Index) of Scaled_Position;
    type Block_Beziers is array (Corners_Index range <>) of Bezier;
 

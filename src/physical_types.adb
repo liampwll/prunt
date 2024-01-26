@@ -63,7 +63,22 @@ is
       return [for I in Axis_Name => Left (I) - Right (I)];
    end "-";
 
+   function "-" (Left, Right : Position_Scale) return Position_Scale is
+   begin
+      return [for I in Axis_Name => Left (I) - Right (I)];
+   end "-";
+
    function "-" (Left, Right : Scaled_Position) return Scaled_Position_Offset is
+   begin
+      return [for I in Axis_Name => Left (I) - Right (I)];
+   end "-";
+
+   function "-" (Left, Right : Scaled_Position_Offset) return Scaled_Position_Offset is
+   begin
+      return [for I in Axis_Name => Left (I) - Right (I)];
+   end "-";
+
+   function "-" (Left : Scaled_Position; Right : Scaled_Position_Offset) return Scaled_Position is
    begin
       return [for I in Axis_Name => Left (I) - Right (I)];
    end "-";
