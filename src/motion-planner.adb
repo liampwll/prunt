@@ -46,17 +46,22 @@ package body Motion.Planner is
                   N_Corners   := N_Corners - 1;
                   exit;
                when Move_Kind =>
-                  PP_Last_Pos                   := Next_Command.Pos;
-                  PP_Corners (N_Corners)        := Next_Command.Pos * Config.Limit_Scaler;
-                  PP_Segment_Limits (N_Corners) :=
-                    (Velocity_Max => Velocity'Min (Next_Command.Limits.Velocity_Max, Config.Max_Limits.Velocity_Max),
-                     Acceleration_Max =>
-                       Acceleration'Min (Next_Command.Limits.Acceleration_Max, Config.Max_Limits.Acceleration_Max),
-                     Jerk_Max         => Jerk'Min (Next_Command.Limits.Jerk_Max, Config.Max_Limits.Jerk_Max),
-                     Snap_Max         => Snap'Min (Next_Command.Limits.Snap_Max, Config.Max_Limits.Snap_Max),
-                     Crackle_Max      => Crackle'Min (Next_Command.Limits.Crackle_Max, Config.Max_Limits.Crackle_Max),
-                     Chord_Error_Max  =>
-                       Length'Min (Next_Command.Limits.Chord_Error_Max, Config.Max_Limits.Chord_Error_Max));
+                  if abs (PP_Last_Pos - Next_Command.Pos) < Preprocessor_Minimum_Move_Distance then
+                     N_Corners := N_Corners - 1;
+                  else
+                     PP_Last_Pos                   := Next_Command.Pos;
+                     PP_Corners (N_Corners)        := Next_Command.Pos * Config.Limit_Scaler;
+                     PP_Segment_Limits (N_Corners) :=
+                       (Velocity_Max     =>
+                          Velocity'Min (Next_Command.Limits.Velocity_Max, Config.Max_Limits.Velocity_Max),
+                        Acceleration_Max =>
+                          Acceleration'Min (Next_Command.Limits.Acceleration_Max, Config.Max_Limits.Acceleration_Max),
+                        Jerk_Max         => Jerk'Min (Next_Command.Limits.Jerk_Max, Config.Max_Limits.Jerk_Max),
+                        Snap_Max         => Snap'Min (Next_Command.Limits.Snap_Max, Config.Max_Limits.Snap_Max),
+                        Crackle_Max => Crackle'Min (Next_Command.Limits.Crackle_Max, Config.Max_Limits.Crackle_Max),
+                        Chord_Error_Max  =>
+                          Length'Min (Next_Command.Limits.Chord_Error_Max, Config.Max_Limits.Chord_Error_Max));
+                  end if;
             end case;
          end;
       end loop;
@@ -73,35 +78,45 @@ package body Motion.Planner is
 
       type Control_Point_Ratio is array (1 .. 4) of Dimensionless;
 
-      function Compute_Secondary_Angle (Start, Corner, Finish : Scaled_Position) return Angle is
-         function Clamped_Arccos (X : Dimensionless) return Angle is
-         begin
-            if X < -1.0 then
-               return Ada.Numerics.Pi;
-            elsif X > 1.0 then
-               return 0.0;
-            else
-               return Arccos (X);
-            end if;
-         end Clamped_Arccos;
+      --  function Compute_Secondary_Angle (Start, Corner, Finish : Scaled_Position) return Angle is
+      --     function Clamped_Arccos (X : Dimensionless) return Angle is
+      --     begin
+      --        if X < -1.0 then
+      --           return Ada.Numerics.Pi;
+      --        elsif X > 1.0 then
+      --           return 0.0;
+      --        else
+      --           return Arccos (X);
+      --        end if;
+      --     end Clamped_Arccos;
+      --
+      --     V1              : constant Scaled_Position_Offset := Start - Corner;
+      --     V2              : constant Scaled_Position_Offset := Finish - Corner;
+      --     Dot_Product     : constant Dimensionless          := Dot (V1 / abs V1, V2 / abs V2);
+      --     Primary_Angle   : constant Angle                  := Clamped_Arccos (Dot_Product);
+      --     Secondary_Angle : constant Angle                  := (Ada.Numerics.Pi - Primary_Angle) / 2.0;
+      --  begin
+      --     return Secondary_Angle;
+      --  end Compute_Secondary_Angle;
 
-         V1              : constant Scaled_Position_Offset := Start - Corner;
-         V2              : constant Scaled_Position_Offset := Finish - Corner;
-         Dot_Product     : constant Dimensionless          := Dot (V1 / abs V1, V2 / abs V2);
-         Primary_Angle   : constant Angle                  := Clamped_Arccos (Dot_Product);
-         Secondary_Angle : constant Angle                  := (Ada.Numerics.Pi - Primary_Angle) / 2.0;
+      function Compute_Sine_Secondary_Angle (Start, Corner, Finish : Scaled_Position) return Dimensionless is
+         V1         : constant Scaled_Position_Offset := Start - Corner;
+         V2         : constant Scaled_Position_Offset := Finish - Corner;
+         A          : constant Area                   := Dot (V1, V2);
+         B          : constant Area                   := 2.0 * (abs V1) * (abs V2);
+         Sine_Angle : constant Dimensionless          := (0.5 + A / B)**(1 / 2);
       begin
-         return Secondary_Angle;
-      end Compute_Secondary_Angle;
+         return Sine_Angle;
+      end Compute_Sine_Secondary_Angle;
 
       function Compute_Control_Point_Ratio (Start, Corner, Finish : Scaled_Position) return Control_Point_Ratio is
-         Secondary_Angle : constant Angle := Compute_Secondary_Angle (Start, Corner, Finish);
+         Sine_Secondary_Angle : constant Dimensionless := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
       begin
-         if Secondary_Angle < Ada.Numerics.Pi / 6.0 then
+         if Sine_Secondary_Angle < Sin (Ada.Numerics.Pi / 6.0) then
             return [2.5, 1.0, 0.7, 0.4];
-         elsif Secondary_Angle < Ada.Numerics.Pi / 4.0 then
-            return [1.0, 0.8, 0.3, 0.3];
-         elsif Secondary_Angle < Ada.Numerics.Pi / 3.0 then
+         elsif Sine_Secondary_Angle < Sin (Ada.Numerics.Pi / 4.0) then
+            return [1.5, 0.8, 0.3, 0.3];
+         elsif Sine_Secondary_Angle < Sin (Ada.Numerics.Pi / 3.0) then
             return [1.0, 0.5, 0.5, 0.5];
          else
             return [0.7, 0.3, 0.2, 0.1];
@@ -111,20 +126,20 @@ package body Motion.Planner is
       function Compute_Inverse_Curvature
         (Start, Corner, Finish : Scaled_Position; Chord_Error_Max : Length) return Length
       is
-         CPR             : constant Control_Point_Ratio := Compute_Control_Point_Ratio (Start, Corner, Finish);
-         Secondary_Angle : constant Angle               := Compute_Secondary_Angle (Start, Corner, Finish);
-         X               : constant Dimensionless       := 14.0 * CPR (1) + 14.0 * CPR (2) + 6.0 * CPR (3) + CPR (4);
+         CPR                  : constant Control_Point_Ratio := Compute_Control_Point_Ratio (Start, Corner, Finish);
+         Sine_Secondary_Angle : constant Dimensionless       := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
+         X                    : constant Dimensionless := 14.0 * CPR (1) + 14.0 * CPR (2) + 6.0 * CPR (3) + CPR (4);
          Y : constant Dimensionless       := 130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0;
-         Z               : constant Dimensionless := 56.0 * CPR (1) + 28.0 * CPR (2) + 8.0 * CPR (3) + CPR (4) + 70.0;
+         Z : constant Dimensionless       := 56.0 * CPR (1) + 28.0 * CPR (2) + 8.0 * CPR (3) + CPR (4) + 70.0;
       begin
-         if Secondary_Angle = Ada.Numerics.Pi / 2.0 then
-            --  This is probably not needed for most Ada implementations and is likely not good enough when it is
-            --  needed. We can fix it later if problems occur.
+         if Sine_Secondary_Angle = 1.0 then
             return 0.0 * mm;
-         elsif Secondary_Angle = 0.0 then
+         elsif Sine_Secondary_Angle = 0.0 then
             return Length'Last;
          end if;
-         return (9.0 * Z**2.0 * Chord_Error_Max) / (8.0 * X * Y * Tan (Secondary_Angle)**2.0);
+         return
+           (9.0 * Z**2.0 * Chord_Error_Max * (1.0 - Sine_Secondary_Angle**2)) /
+           (8.0 * X * Y * Sine_Secondary_Angle**2);
       end Compute_Inverse_Curvature;
 
       function Sum_Control_Point_Ratio (CPR : Control_Point_Ratio) return Dimensionless is
@@ -139,15 +154,15 @@ package body Motion.Planner is
       function Compute_Bezier_Base_Length
         (Start, Corner, Finish : Scaled_Position; Chord_Error_Max : Length) return Length
       is
-         Secondary_Angle : constant Angle               := Compute_Secondary_Angle (Start, Corner, Finish);
-         CPR             : constant Control_Point_Ratio := Compute_Control_Point_Ratio (Start, Corner, Finish);
-         CPR_Sum         : constant Dimensionless       := Sum_Control_Point_Ratio (CPR);
-         Incoming_Length : constant Length              := abs (Start - Corner);
-         Outgoing_Length : constant Length              := abs (Finish - Corner);
+         Sine_Secondary_Angle : constant Dimensionless       := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
+         CPR                  : constant Control_Point_Ratio := Compute_Control_Point_Ratio (Start, Corner, Finish);
+         CPR_Sum              : constant Dimensionless       := Sum_Control_Point_Ratio (CPR);
+         Incoming_Length      : constant Length              := abs (Start - Corner);
+         Outgoing_Length      : constant Length              := abs (Finish - Corner);
 
          Deviation_Limit_Numerator   : constant Length        := Chord_Error_Max * 256.0;
          Deviation_Limit_Denominator : constant Dimensionless :=
-           (130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0) * Sin (Secondary_Angle);
+           (130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0) * Sine_Secondary_Angle;
 
          Incoming_Limit : constant Length := 0.5 * Incoming_Length / (CPR_Sum + 1.0);
          Outgoing_Limit : constant Length := 0.5 * Outgoing_Length / (CPR_Sum + 1.0);
@@ -197,12 +212,12 @@ package body Motion.Planner is
       function Compute_Curve_Mid_Point
         (Start, Corner, Finish : Scaled_Position; Chord_Error_Max : Length) return Scaled_Position
       is
-         Secondary_Angle : constant Angle               := Compute_Secondary_Angle (Start, Corner, Finish);
-         CPR             : constant Control_Point_Ratio := Compute_Control_Point_Ratio (Start, Corner, Finish);
-         Base_Length     : constant Length := Compute_Bezier_Base_Length (Start, Corner, Finish, Chord_Error_Max);
-         Bisector        : constant Position_Scale      := Compute_Unit_Bisector (Start, Corner, Finish);
-         Magic           : constant Dimensionless       :=
-           (130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0) / 256.0 * Sin (Secondary_Angle) *
+         Sine_Secondary_Angle : constant Dimensionless       := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
+         CPR                  : constant Control_Point_Ratio := Compute_Control_Point_Ratio (Start, Corner, Finish);
+         Base_Length          : constant Length := Compute_Bezier_Base_Length (Start, Corner, Finish, Chord_Error_Max);
+         Bisector             : constant Position_Scale      := Compute_Unit_Bisector (Start, Corner, Finish);
+         Magic                : constant Dimensionless       :=
+           (130.0 * CPR (1) + 46.0 * CPR (2) + 10.0 * CPR (3) + CPR (4) + 256.0) / 256.0 * Sine_Secondary_Angle *
            Base_Length;
       begin
          return Corner + Bisector * Magic;
@@ -300,10 +315,12 @@ package body Motion.Planner is
       end Compute_Bezier_Point;
 
       function Solve_Points_Per_Side (Bez : Bezier) return Curve_Point_Set_Index is
-         Lower : Curve_Point_Set_Index := 2;
+         Lower : Curve_Point_Set_Index := 100;
          Upper : Curve_Point_Set_Index := Curve_Point_Set_Index'Last;
          Mid   : Curve_Point_Set_Index;
       begin
+         --  TODO: Remove.
+         return 5_000;
          loop
             Mid := Lower + (Upper - Lower) / 2;
             exit when Lower = Upper;
@@ -318,6 +335,26 @@ package body Motion.Planner is
 
          return Mid;
       end Solve_Points_Per_Side;
+
+      function Compute_Inverse_Curvature (A, B, C : Scaled_Position) return Length is
+         Side_AB  : Length := abs (A - B) / 2.0;
+         Side_AC  : Length := abs (A - C) / 2.0;
+         Side_BC  : Length := abs (B - C) / 2.0;
+         Tri_Area : Area   :=
+           0.25 *
+           ((Side_AB + Side_AC + Side_BC) * (-Side_AB + Side_AC + Side_BC) * (Side_AB - Side_AC + Side_BC) *
+              (Side_AB + Side_AC - Side_BC))**(1 / 2);
+      begin
+         if Tri_Area = 0.0 * mm**2 then
+            if Side_AC > Side_AB then
+               return Length'Last;
+            else
+               return 0.0 * mm;
+            end if;
+         else
+            return (Side_AB * Side_AC * Side_BC) / (4.0 * Tri_Area);
+         end if;
+      end Compute_Inverse_Curvature;
 
    begin
       for I in Working.Curve_Point_Sets'Range loop
@@ -347,6 +384,14 @@ package body Motion.Planner is
          --  These should be identical, but we could change the curve in the future.
          Working.Curve_Point_Sets (I).Incoming_Length := Curve_Length (Working.Curve_Point_Sets (I).Incoming);
          Working.Curve_Point_Sets (I).Outgoing_Length := Curve_Length (Working.Curve_Point_Sets (I).Outgoing);
+
+         Working.Inverse_Curvatures (I) :=
+           Length'Min
+             (Working.Inverse_Curvatures (I),
+              Compute_Inverse_Curvature
+                (Working.Curve_Point_Sets (I).Incoming (Working.Curve_Point_Sets (I).Incoming'Last - 1),
+                 Working.Curve_Point_Sets (I).Incoming (Working.Curve_Point_Sets (I).Incoming'Last),
+                 Working.Curve_Point_Sets (I).Outgoing (Working.Curve_Point_Sets (I).Outgoing'First + 1)));
       end loop;
    end Curve_Splitter;
 
@@ -827,9 +872,9 @@ package body Motion.Planner is
    task body Runner is
    begin
       accept Init (Conf : Config_Parameters) do
-         Config      := Conf;
-         PP_Last_Pos := Config.Initial_Position;
+         Config := Conf;
       end Init;
+      PP_Last_Pos := Config.Initial_Position;
 
       loop
          Preprocessor;

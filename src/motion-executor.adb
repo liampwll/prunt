@@ -16,32 +16,6 @@ package body Motion.Executor is
          Working.Curve_Point_Sets (Finish).Incoming (Working.Curve_Point_Sets (Finish).Incoming'First));
    end Curve_Corner_Distance;
 
-   --  TODO: Add caching.
-   function Point_Along_Curve (Start, Finish : Curve_Point_Set_Values; Distance : Length) return Scaled_Position is
-      Distance_To_Go : Length          := Distance;
-      Last_Point     : Scaled_Position := Start (Start'First);
-   begin
-      for I in Start'First + 1 .. Start'Last loop
-         if abs (Start (I) - Last_Point) >= Distance_To_Go and abs (Start (I) - Last_Point) /= 0.0 * mm then
-            return Last_Point + (Start (I) - Last_Point) * (Distance_To_Go / abs (Start (I) - Last_Point));
-         else
-            Distance_To_Go := Distance_To_Go - abs (Start (I) - Last_Point);
-            Last_Point     := Start (I);
-         end if;
-      end loop;
-
-      for I in Finish'First .. Finish'Last loop
-         if abs (Finish (I) - Last_Point) >= Distance_To_Go and abs (Finish (I) - Last_Point) /= 0.0 * mm then
-            return Last_Point + (Finish (I) - Last_Point) * (Distance_To_Go / abs (Finish (I) - Last_Point));
-         else
-            Distance_To_Go := Distance_To_Go - abs (Finish (I) - Last_Point);
-            Last_Point     := Finish (I);
-         end if;
-      end loop;
-
-      return Last_Point;
-   end Point_Along_Curve;
-
    package Curve_Walker is
       procedure Reset_For_Segment (Current_Segment : Corners_Index);
       function Walk_To (Distance : Length) return Scaled_Position;
@@ -100,7 +74,7 @@ package body Motion.Executor is
                  (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point) *
                    (Distance_To_Go / abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point));
             else
-               Last_Distance := Last_Distance + abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point);
+               Last_Distance  := Last_Distance + abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point);
                Distance_To_Go := Distance - Last_Distance;
                Last_Point     := Working.Curve_Point_Sets (Segment).Incoming (I);
                exit when I = Working.Curve_Point_Sets (Segment).Incoming'Last;
@@ -112,9 +86,43 @@ package body Motion.Executor is
       end Walk_To;
    end Curve_Walker;
 
+   package Running_Average is
+      procedure Reset (Pos : Scaled_Position);
+      procedure Push (Pos : Scaled_Position);
+      function Get return Scaled_Position;
+   end Running_Average;
+
+   package body Running_Average is
+      type Index is mod 8;
+      Entries       : array (Index) of Scaled_Position;
+      Current_Index : Index := 0;
+
+      procedure Reset (Pos : Scaled_Position) is
+      begin
+         Entries := [others => Pos];
+      end Reset;
+
+      procedure Push (Pos : Scaled_Position) is
+      begin
+         Current_Index           := Current_Index + 1;
+         Entries (Current_Index) := Pos;
+      end Push;
+
+      function Get return Scaled_Position is
+         Pos_Sum   : Scaled_Position := [others => 0.0 * mm];
+         Index_Sum : Dimensionless   := 0.0;
+      begin
+         for I in Index loop
+            Pos_Sum   := Pos_Sum + Scaled_Position_Offset (Entries (Current_Index + 1 + I)) * 1.0;
+            Index_Sum := Index_Sum + 1.0;
+         end loop;
+
+         return Pos_Sum / Index_Sum;
+      end Get;
+   end Running_Average;
+
    procedure Logger is
-      Last_End_Time : Time := 0.0 * s;
-      Current_Time  : Time := 0.0 * s;
+      Current_Time : Time := 0.0 * s;
    begin
       for I in Working.Feedrate_Profiles'Range loop
          Curve_Walker.Reset_For_Segment (I);
@@ -128,7 +136,9 @@ package body Motion.Executor is
                     Working.Corner_Velocity_Limits (I - 1));
                Point    : Scaled_Position := Curve_Walker.Walk_To (Distance);
             begin
-               Put_Line (Length'Image (Point (X_Axis)) & "," & Length'Image (Point (Y_Axis)) & "," & Distance'Image);
+               -- Running_Average.Push (Point);
+               -- Put_Line (Running_Average.Get (X_Axis)'Image & "," & Running_Average.Get (Y_Axis)'Image);
+               Put_Line (Point (X_Axis)'Image & "," & Point (Y_Axis)'Image);
             end;
             Current_Time := Current_Time + Logger_Interpolation_Time;
          end loop;
@@ -142,6 +152,7 @@ package body Motion.Executor is
       accept Init (Conf : Config_Parameters) do
          Config := Conf;
       end Init;
+      -- Running_Average.Reset (Config.Initial_Position * Config.Limit_Scaler);
 
       loop
          Execution_Block_Queue.Dequeue (Working);

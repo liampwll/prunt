@@ -33,6 +33,11 @@ is
       return [for I in Axis_Name => Left (I) * Right (I)];
    end "*";
 
+   function "*" (Left : Scaled_Position; Right : Dimensionless) return Scaled_Position is
+   begin
+      return [for I in Axis_Name => Left (I) * Right];
+   end "*";
+
    function "*" (Left : Scaled_Position_Offset; Right : Position_Scale) return Scaled_Position_Offset is
    begin
       return [for I in Axis_Name => Left (I) * Right (I)];
@@ -74,6 +79,11 @@ is
    end "/";
 
    function "/" (Left : Scaled_Position_Offset; Right : Length) return Position_Scale is
+   begin
+      return [for I in Axis_Name => Left (I) / Right];
+   end "/";
+
+   function "/" (Left : Scaled_Position; Right : Dimensionless) return Scaled_Position is
    begin
       return [for I in Axis_Name => Left (I) / Right];
    end "/";
@@ -120,6 +130,16 @@ is
 
    function Dot (Left : Scaled_Position_Offset; Right : Position_Scale) return Length is
       Sum : Length := 0.0 * mm;
+   begin
+      for I in Axis_Name loop
+         Sum := Sum + Left (I) * Right (I);
+      end loop;
+
+      return Sum;
+   end Dot;
+
+   function Dot (Left, Right : Scaled_Position_Offset) return Area is
+      Sum : Area := 0.0 * mm**2;
    begin
       for I in Axis_Name loop
          Sum := Sum + Left (I) * Right (I);

@@ -20,14 +20,15 @@ private package Motion.Planner is
 
    Command_Queue : Command_Queues.Queue;
 
-   type Corners_Index is range 0 .. 2000;
+   type Corners_Index is range 0 .. 2_000;
 
    --  Preprocessor
+   Preprocessor_Minimum_Move_Distance : constant Length := 0.001 * mm;
    type Block_Plain_Corners is array (Corners_Index range <>) of Scaled_Position;
    type Block_Segment_Limits is array (Corners_Index range <>) of Kinematic_Limits;
 
    --  Corner_Blender
-   Corner_Blender_Max_Computational_Error : Length := 0.000_1 * mm;
+   Corner_Blender_Max_Computational_Error : constant Length := 0.000_000_01 * mm;
 
    type Bezier_Index is range 1 .. 10;
    type Bezier is array (Bezier_Index) of Scaled_Position;
@@ -39,9 +40,9 @@ private package Motion.Planner is
    type Block_Shifted_Corner_Error_Limits is array (Corners_Index range <>) of Length;
 
    --  Curve_Splitter
-   Curve_Splitter_Target_Step : Length := 0.000_1 * mm;
+   Curve_Splitter_Target_Step : constant Length := 0.000_001 * mm;
 
-   type Curve_Point_Set_Index is range 0 .. 1_000;
+   type Curve_Point_Set_Index is range 0 .. 5_000;
    type Curve_Point_Set_Values is array (Curve_Point_Set_Index range <>) of Scaled_Position;
    type Curve_Point_Set (Points_Per_Side : Curve_Point_Set_Index := 0) is record
       Incoming_Length : Length;
@@ -65,6 +66,9 @@ private package Motion.Planner is
       --  the discriminant without making a copy as GCC tries to copy the whole thing to the stack. In the future we
       --  could possibly use SPARK to ensure stages do not touch fields that are not yet assigned.
 
+      --  Having so many discriminated types here may seem like it will cause performance issues, but in practice it is
+      --  faster than the same code without discriminated types (refer to the no-discriminated-records branch).
+
       --  Preprocessor
       Next_Master    : Master_Manager.Master;
       Corners        : Block_Plain_Corners (1 .. N_Corners);
@@ -87,9 +91,11 @@ private package Motion.Planner is
       Feedrate_Profiles : Block_Feedrate_Profiles (2 .. N_Corners);
    end record;
 
+   --  TODO: It might make sense to create a custom type here that can hold n bytes rather than n records so lots of
+   --  small blocks may be queued if the planner is flushed often.
    package Execution_Block_Queues_Interface is new Ada.Containers.Synchronized_Queue_Interfaces (Execution_Block);
    package Execution_Block_Queues is new Ada.Containers.Bounded_Synchronized_Queues
-     (Execution_Block_Queues_Interface, 5);
+     (Execution_Block_Queues_Interface, 1);
    use Execution_Block_Queues;
 
    Execution_Block_Queue : Execution_Block_Queues.Queue;
@@ -97,5 +103,5 @@ private package Motion.Planner is
    task Runner is
       entry Init (Conf : Config_Parameters);
    end Runner;
-   
+
 end Motion.Planner;

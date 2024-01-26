@@ -70,6 +70,7 @@ is
    function "*" (Left : Position_Scale; Right : Dimensionless) return Position_Scale;
    function "*" (Left : Position_Scale; Right : Length) return Scaled_Position_Offset;
    function "*" (Left : Scaled_Position; Right : Position_Scale) return Scaled_Position;
+   function "*" (Left : Scaled_Position; Right : Dimensionless) return Scaled_Position;
    function "*" (Left : Scaled_Position_Offset; Right : Position_Scale) return Scaled_Position_Offset;
    function "*" (Left : Scaled_Position_Offset; Right : Dimensionless) return Scaled_Position_Offset;
    function "+" (Left : Scaled_Position; Right : Scaled_Position_Offset) return Scaled_Position;
@@ -79,10 +80,12 @@ is
    function "/" (Left : Position_Offset; Right : Length) return Position_Scale with Pre => (Right /= 0.0 * mm);
    function "/" (Left : Position_Scale; Right : Dimensionless) return Position_Scale with Pre => (Right /= 0.0);
    function "/" (Left : Scaled_Position_Offset; Right : Length) return Position_Scale with Pre => (Right /= 0.0 * mm);
+   function "/" (Left : Scaled_Position; Right : Dimensionless) return Scaled_Position with Pre => (Right /= 0.0);
    function "abs" (Left : Position_Offset) return Length;
    function "abs" (Left : Position_Scale) return Dimensionless;
    function "abs" (Left : Scaled_Position_Offset) return Length;
    function Dot (Left, Right : Position_Scale) return Dimensionless;
    function Dot (Left : Scaled_Position_Offset; Right : Position_Scale) return Length;
+   function Dot (Left, Right : Scaled_Position_Offset) return Area;
 
 end Physical_Types;
