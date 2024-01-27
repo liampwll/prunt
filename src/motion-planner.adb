@@ -143,9 +143,9 @@ package body Motion.Planner is
          Deviation_Limit_Denominator : constant Dimensionless :=
            Sine_Secondary_Angle * (4_072_849.0 / 429.0 + 714.0 + 2.0**14 * 1_225.0 / (858.0 * Cosine_Secondary_Angle));
          Incoming_Limit              : constant Length        :=
-           (0.5 * 858.0 * Incoming_Length * Cosine_Secondary_Angle) / (5_210.0 * Cosine_Secondary_Angle + 1_225.0);
+           (0.49 * 858.0 * Incoming_Length * Cosine_Secondary_Angle) / (5_210.0 * Cosine_Secondary_Angle + 1_225.0);
          Outgoing_Limit              : constant Length        :=
-           (0.5 * 858.0 * Outgoing_Length * Cosine_Secondary_Angle) / (5_210.0 * Cosine_Secondary_Angle + 1_225.0);
+           (0.49 * 858.0 * Outgoing_Length * Cosine_Secondary_Angle) / (5_210.0 * Cosine_Secondary_Angle + 1_225.0);
       begin
          --  TODO: Do we need a small error margin here?
          if Deviation_Limit_Denominator = 0.0 then
@@ -223,11 +223,11 @@ package body Motion.Planner is
          Cosine_Secondary_Angle : constant Dimensionless  := Compute_Cosine_Secondary_Angle (Start, Corner, Finish);
          Base_Length : constant Length         := Compute_Bezier_Base_Length (Start, Corner, Finish, Chord_Error_Max);
          Bisector               : constant Position_Scale := Compute_Unit_Bisector (Start, Corner, Finish);
-         Deviation              : constant Dimensionless  :=
+         Deviation              : constant Length         :=
            (Sine_Secondary_Angle / 2.0**14) * Base_Length *
            ((397.0 / 429.0) + 10_207.0 + (2.0**14 * 1_225.0) / (858.8 * Cosine_Secondary_Angle));
       begin
-         return Corner - Bisector * Deviation;
+         return Corner + Bisector * Deviation;
       end Compute_Curve_Mid_Point;
 
       Last_Comp_Error : Length := 0.0 * mm;
@@ -246,48 +246,52 @@ package body Motion.Planner is
       Working.Midpoints (Working.Midpoints'First) := Working.Corners (Working.Corners'First);
       Working.Midpoints (Working.Midpoints'Last)  := Working.Corners (Working.Corners'Last);
 
-      loop
-         Last_Comp_Error := 0.0 * mm;
+      if Corner_Blender_Do_Shifting then
+         loop
+            Last_Comp_Error := 0.0 * mm;
 
-         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
-            declare
-               Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
-               Corner : constant Scaled_Position := Working.Shifted_Corners (I);
-               Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
-            begin
-               if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) <
-                 Compute_Sine_Secondary_Angle (Start, Corner, Finish)
-               then
-                  Working.Midpoints (I) := Working.Corners (I);
-               else
-                  Working.Midpoints (I) :=
-                    Compute_Curve_Mid_Point (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I));
-                  Last_Comp_Error       := Length'Max (@, abs (Working.Midpoints (I) - Working.Corners (I)));
-               end if;
-            end;
+            for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+               declare
+                  Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
+                  Corner : constant Scaled_Position := Working.Shifted_Corners (I);
+                  Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
+               begin
+                  if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) <
+                    Compute_Sine_Secondary_Angle
+                      (Working.Corners (I - 1), Working.Corners (I), Working.Corners (I + 1))
+                  then
+                     Working.Midpoints (I) := Working.Corners (I);
+                  else
+                     Working.Midpoints (I) :=
+                       Compute_Curve_Mid_Point (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I));
+                     Last_Comp_Error       := Length'Max (@, abs (Working.Midpoints (I) - Working.Corners (I)));
+                  end if;
+               end;
+            end loop;
+
+            --  TODO: Remove and make the shifting thing work again.
+            -- exit;
+
+            exit when Last_Comp_Error <= Corner_Blender_Max_Computational_Error;
+
+            for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+               Working.Shifted_Corners (I) := @ + (Working.Corners (I) - Working.Midpoints (I));
+            end loop;
+
+            for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+               declare
+                  Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
+                  Corner : constant Scaled_Position := Working.Shifted_Corners (I);
+                  Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
+               begin
+                  Working.Shifted_Corner_Error_Limits (I) :=
+                    abs Dot
+                      (Working.Corners (I) - Working.Shifted_Corners (I),
+                       Compute_Unit_Bisector (Start, Corner, Finish));
+               end;
+            end loop;
          end loop;
-
-         --  TODO: Remove and make the shifting thing work again.
-         exit;
-
-         exit when Last_Comp_Error <= Corner_Blender_Max_Computational_Error;
-
-         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
-            Working.Shifted_Corners (I) := @ + (Working.Corners (I) - Working.Midpoints (I));
-         end loop;
-
-         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
-            declare
-               Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
-               Corner : constant Scaled_Position := Working.Shifted_Corners (I);
-               Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
-            begin
-               Working.Shifted_Corner_Error_Limits (I) :=
-                 abs Dot
-                   (Working.Corners (I) - Working.Shifted_Corners (I), Compute_Unit_Bisector (Start, Corner, Finish));
-            end;
-         end loop;
-      end loop;
+      end if;
 
       for I in Working.Beziers'First + 1 .. Working.Beziers'Last - 1 loop
          declare
@@ -295,7 +299,8 @@ package body Motion.Planner is
             Corner : constant Scaled_Position := Working.Shifted_Corners (I);
             Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
          begin
-            if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) < Compute_Sine_Secondary_Angle (Start, Corner, Finish)
+            if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) <
+              Compute_Sine_Secondary_Angle (Working.Corners (I - 1), Working.Corners (I), Working.Corners (I + 1))
             then
                Working.Beziers (I) := [others => Working.Corners (I)];
             else
@@ -307,8 +312,6 @@ package body Motion.Planner is
 
       Working.Beziers (Working.Beziers'First) := [others => Working.Corners (Working.Beziers'First)];
       Working.Beziers (Working.Beziers'Last) := [others => Working.Corners (Working.Beziers'Last)];
-      Working.Inverse_Curvatures (Working.Inverse_Curvatures'First) := 0.0 * mm;
-      Working.Inverse_Curvatures (Working.Inverse_Curvatures'Last)  := 0.0 * mm;
    end Corner_Blender;
 
    procedure Curve_Splitter is
@@ -355,7 +358,6 @@ package body Motion.Planner is
          return Mid;
       end Solve_Points_Per_Side;
 
-      --  TODO: Fix
       function Compute_Inverse_Curvature (A, B, C : Scaled_Position) return Length is
          Side_AB  : Length := abs (A - B) / 2.0;
          Side_AC  : Length := abs (A - C) / 2.0;
@@ -368,10 +370,13 @@ package body Motion.Planner is
                  0.0 * mm**4))**
              (1 / 2);
       begin
+         if A = C then
+            return 0.0 * mm;
+         end if;
+
          if Tri_Area = 0.0 * mm**2 then
             if Side_AC > Side_AB then
-               --  return Length'Last;
-               return 0.0 * mm;
+               return Length'Last;
             else
                return 0.0 * mm;
             end if;

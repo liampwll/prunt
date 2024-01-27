@@ -28,8 +28,9 @@ private package Motion.Planner is
    type Block_Segment_Limits is array (Corners_Index range <>) of Kinematic_Limits;
 
    --  Corner_Blender
-   Corner_Blender_Max_Computational_Error      : constant Length := 0.000_000_01 * mm;
-   Corner_Blender_Max_Secondary_Angle_To_Blend : constant Angle  := 89.5 * deg;
+   Corner_Blender_Do_Shifting                  : constant Boolean := True;
+   Corner_Blender_Max_Computational_Error      : constant Length  := 0.001 * mm;
+   Corner_Blender_Max_Secondary_Angle_To_Blend : constant Angle   := 89.5 * deg;
 
    type Bezier_Index is range 0 .. 15;
    type Bezier is array (Bezier_Index) of Scaled_Position;
@@ -41,7 +42,7 @@ private package Motion.Planner is
    type Block_Shifted_Corner_Error_Limits is array (Corners_Index range <>) of Length;
 
    --  Curve_Splitter
-   Curve_Splitter_Target_Step : constant Length := 0.000_001 * mm;
+   Curve_Splitter_Target_Step : constant Length := 0.000_1 * mm;
 
    type Curve_Point_Set_Index is range 0 .. 5_000;
    type Curve_Point_Set_Values is array (Curve_Point_Set_Index range <>) of Scaled_Position;
@@ -77,13 +78,13 @@ private package Motion.Planner is
 
       --  Corner_Blender
       Beziers                     : Block_Beziers (1 .. N_Corners);
-      Inverse_Curvatures          : Block_Inverse_Curvatures (1 .. N_Corners);
       Midpoints                   : Block_Midpoints (1 .. N_Corners);
       Shifted_Corners             : Block_Shifted_Corners (1 .. N_Corners);
       Shifted_Corner_Error_Limits : Block_Shifted_Corner_Error_Limits (1 .. N_Corners);
 
       --  Curve_Splitter
-      Curve_Point_Sets : Block_Curve_Point_Sets (1 .. N_Corners);
+      Curve_Point_Sets   : Block_Curve_Point_Sets (1 .. N_Corners);
+      Inverse_Curvatures : Block_Inverse_Curvatures (1 .. N_Corners);
 
       --  Kinematic_Limiter
       Corner_Velocity_Limits : Block_Corner_Velocity_Limits (1 .. N_Corners);
