@@ -269,9 +269,6 @@ package body Motion.Planner is
                end;
             end loop;
 
-            --  TODO: Remove and make the shifting thing work again.
-            -- exit;
-
             exit when Last_Comp_Error <= Corner_Blender_Max_Computational_Error;
 
             for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
@@ -295,23 +292,37 @@ package body Motion.Planner is
 
       for I in Working.Beziers'First + 1 .. Working.Beziers'Last - 1 loop
          declare
-            Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
-            Corner : constant Scaled_Position := Working.Shifted_Corners (I);
-            Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
+            Start   : constant Scaled_Position := Working.Shifted_Corners (I - 1);
+            Corner  : constant Scaled_Position := Working.Shifted_Corners (I);
+            Finish  : constant Scaled_Position := Working.Shifted_Corners (I + 1);
+            Sin_Sec : constant Dimensionless   := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
          begin
             if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) <
               Compute_Sine_Secondary_Angle (Working.Corners (I - 1), Working.Corners (I), Working.Corners (I + 1))
             then
-               Working.Beziers (I) := [others => Working.Corners (I)];
+               Working.Beziers (I)            := [others => Working.Corners (I)];
+               Working.Inverse_Curvatures (I) := 0.0 * mm;
             else
-               Working.Beziers (I) :=
+               Working.Beziers (I)            :=
                  Compute_Control_Points (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I));
+               Working.Inverse_Curvatures (I) :=
+                 (12.0 / 7.0) *
+                 Compute_Bezier_Base_Length (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I)) /
+                 (Sin_Sec / (1.0 - Sin_Sec**2)**(1 / 2));
             end if;
          end;
       end loop;
 
       Working.Beziers (Working.Beziers'First) := [others => Working.Corners (Working.Beziers'First)];
-      Working.Beziers (Working.Beziers'Last) := [others => Working.Corners (Working.Beziers'Last)];
+      Working.Beziers (Working.Beziers'Last)  := [others => Working.Corners (Working.Beziers'Last)];
+
+      -- Put_Line
+      --   ("BASE = " &
+      --    Length'Image
+      --      (Compute_Bezier_Base_Length
+      --         (Working.Shifted_Corners (5), Working.Shifted_Corners (6), Working.Shifted_Corners (7),
+      --          Working.Shifted_Corner_Error_Limits (6))));
+      -- Put_Line ("B4B5 = " & Length'Image (abs (Working.Beziers (6) (4) - Working.Beziers (6) (5))));
    end Corner_Blender;
 
    procedure Curve_Splitter is
@@ -338,11 +349,34 @@ package body Motion.Planner is
          return Bez_2 (Bez_2'First);
       end Compute_Bezier_Point;
 
+      function Compute_Bezier_Point_V2 (Bez : Bezier; T : Dimensionless) return Scaled_Position is
+         Bez_2 : Bezier := Bez;
+      begin
+         return
+           Bez (0) * ((1.0 - T)**15) + Scaled_Position_Offset (Bez (1)) * (15.0 * T * (1.0 - T)**14) +
+           Scaled_Position_Offset (Bez (2)) * (105.0 * T**2 * (1.0 - T)**13) +
+           Scaled_Position_Offset (Bez (3)) * (455.0 * T**3 * (1.0 - T)**12) +
+           Scaled_Position_Offset (Bez (4)) * (1_365.0 * T**4 * (1.0 - T)**11) +
+           Scaled_Position_Offset (Bez (5)) * (3_003.0 * T**5 * (1.0 - T)**10) +
+           Scaled_Position_Offset (Bez (6)) * (5_005.0 * T**6 * (1.0 - T)**9) +
+           Scaled_Position_Offset (Bez (7)) * (6_435.0 * T**7 * (1.0 - T)**8) +
+           Scaled_Position_Offset (Bez (8)) * (6_435.0 * T**8 * (1.0 - T)**7) +
+           Scaled_Position_Offset (Bez (9)) * (5_005.0 * T**9 * (1.0 - T)**6) +
+           Scaled_Position_Offset (Bez (10)) * (3_003.0 * T**10 * (1.0 - T)**5) +
+           Scaled_Position_Offset (Bez (11)) * (1_365.0 * T**11 * (1.0 - T)**4) +
+           Scaled_Position_Offset (Bez (12)) * (455.0 * T**12 * (1.0 - T)**3) +
+           Scaled_Position_Offset (Bez (13)) * (105.0 * T**13 * (1.0 - T)**2) +
+           Scaled_Position_Offset (Bez (14)) * (15.0 * T**14 * (1.0 - T)) +
+           Scaled_Position_Offset (Bez (15)) * (T**15);
+      end Compute_Bezier_Point_V2;
+
       function Solve_Points_Per_Side (Bez : Bezier) return Curve_Point_Set_Index is
          Lower : Curve_Point_Set_Index := 10;
          Upper : Curve_Point_Set_Index := Curve_Point_Set_Index'Last;
          Mid   : Curve_Point_Set_Index;
       begin
+         --  TODO: remove
+         return 5_000;
          loop
             Mid := Lower + (Upper - Lower) / 2;
             exit when Lower = Upper;
@@ -414,12 +448,14 @@ package body Motion.Planner is
          Working.Curve_Point_Sets (I).Incoming_Length := Curve_Length (Working.Curve_Point_Sets (I).Incoming);
          Working.Curve_Point_Sets (I).Outgoing_Length := Curve_Length (Working.Curve_Point_Sets (I).Outgoing);
 
-         Working.Inverse_Curvatures (I) :=
-           Compute_Inverse_Curvature
-             (Working.Curve_Point_Sets (I).Incoming (Working.Curve_Point_Sets (I).Incoming'Last - 1),
-              Working.Curve_Point_Sets (I).Incoming (Working.Curve_Point_Sets (I).Incoming'Last),
-              Working.Curve_Point_Sets (I).Outgoing (Working.Curve_Point_Sets (I).Outgoing'First + 1));
+         -- Working.Inverse_Curvatures (I) :=
+         --   Compute_Inverse_Curvature
+         --     (Working.Curve_Point_Sets (I).Incoming (Working.Curve_Point_Sets (I).Incoming'Last - 1),
+         --      Working.Curve_Point_Sets (I).Incoming (Working.Curve_Point_Sets (I).Incoming'Last),
+         --      Working.Curve_Point_Sets (I).Outgoing (Working.Curve_Point_Sets (I).Outgoing'First + 1));
       end loop;
+
+      -- Put_Line ("LEN = " & Length'Image (Curve_Length (Working.Curve_Point_Sets (6).Incoming) * 2.0));
    end Curve_Splitter;
 
    procedure Kinematic_Limiter is
