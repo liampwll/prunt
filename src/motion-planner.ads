@@ -36,24 +36,13 @@ private package Motion.Planner is
    type Bezier is array (Bezier_Index) of Scaled_Position;
    type Block_Beziers is array (Corners_Index range <>) of Bezier;
 
+   function Distance_At_T (Bez : Bezier; T : Dimensionless) return Length;
+   function T_At_Distance (Bez : Bezier; Distance : Length) return Dimensionless;
+
    type Block_Inverse_Curvatures is array (Corners_Index range <>) of Length;
    type Block_Midpoints is array (Corners_Index range <>) of Scaled_Position;
    type Block_Shifted_Corners is array (Corners_Index range <>) of Scaled_Position;
    type Block_Shifted_Corner_Error_Limits is array (Corners_Index range <>) of Length;
-
-   --  Curve_Splitter
-   Curve_Splitter_Target_Step : constant Length := 0.000_1 * mm;
-
-   type Curve_Point_Set_Index is range 0 .. 5_000;
-   type Curve_Point_Set_Values is array (Curve_Point_Set_Index range <>) of Scaled_Position;
-   type Curve_Point_Set (Points_Per_Side : Curve_Point_Set_Index := 0) is record
-      Incoming_Length : Length;
-      Outgoing_Length : Length;
-      Incoming        : Curve_Point_Set_Values (0 .. Points_Per_Side);
-      Outgoing        : Curve_Point_Set_Values (0 .. Points_Per_Side);
-   end record;
-
-   type Block_Curve_Point_Sets is array (Corners_Index range <>) of Curve_Point_Set;
 
    --  Feedrate_Profile_Generator
    type Block_Feedrate_Profiles is array (Corners_Index range <>) of Feedrate_Profile;
@@ -81,10 +70,7 @@ private package Motion.Planner is
       Midpoints                   : Block_Midpoints (1 .. N_Corners);
       Shifted_Corners             : Block_Shifted_Corners (1 .. N_Corners);
       Shifted_Corner_Error_Limits : Block_Shifted_Corner_Error_Limits (1 .. N_Corners);
-
-      --  Curve_Splitter
-      Curve_Point_Sets   : Block_Curve_Point_Sets (1 .. N_Corners);
-      Inverse_Curvatures : Block_Inverse_Curvatures (1 .. N_Corners);
+      Inverse_Curvatures          : Block_Inverse_Curvatures (1 .. N_Corners);
 
       --  Kinematic_Limiter
       Corner_Velocity_Limits : Block_Corner_Velocity_Limits (1 .. N_Corners);

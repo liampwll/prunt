@@ -7,85 +7,6 @@ package body Motion.Executor is
    Config  : Config_Parameters;
    Working : Execution_Block;
 
-   function Curve_Corner_Distance (Start, Finish : Corners_Index) return Length is
-   begin
-      return
-        Working.Curve_Point_Sets (Start).Outgoing_Length + Working.Curve_Point_Sets (Finish).Incoming_Length +
-        abs
-        (Working.Curve_Point_Sets (Start).Outgoing (Working.Curve_Point_Sets (Start).Outgoing'Last) -
-         Working.Curve_Point_Sets (Finish).Incoming (Working.Curve_Point_Sets (Finish).Incoming'First));
-   end Curve_Corner_Distance;
-
-   package Curve_Walker is
-      procedure Reset_For_Segment (Current_Segment : Corners_Index);
-      function Walk_To (Distance : Length) return Scaled_Position;
-   end Curve_Walker;
-
-   package body Curve_Walker is
-      Segment         : Corners_Index;
-      In_Second_Curve : Boolean;
-      Last_Point      : Scaled_Position;
-      I               : Curve_Point_Set_Index;
-      Last_Distance   : Length;
-
-      procedure Reset_For_Segment (Current_Segment : Corners_Index) is
-      begin
-         Segment         := Current_Segment;
-         In_Second_Curve := False;
-         I               := Working.Curve_Point_Sets (Segment - 1).Outgoing'First;
-         Last_Point      := Working.Curve_Point_Sets (Segment - 1).Outgoing (I);
-         Last_Distance   := 0.0 * mm;
-      end Reset_For_Segment;
-
-      function Walk_To (Distance : Length) return Scaled_Position is
-         Distance_To_Go : Length := Distance - Last_Distance;
-      begin
-         pragma Assert (Distance >= Last_Distance);
-
-         if not In_Second_Curve then
-            loop
-               if abs (Working.Curve_Point_Sets (Segment - 1).Outgoing (I) - Last_Point) >= Distance_To_Go and
-                 abs (Working.Curve_Point_Sets (Segment - 1).Outgoing (I) - Last_Point) /= 0.0 * mm
-               then
-                  return
-                    Last_Point +
-                    (Working.Curve_Point_Sets (Segment - 1).Outgoing (I) - Last_Point) *
-                      (Distance_To_Go / abs (Working.Curve_Point_Sets (Segment - 1).Outgoing (I) - Last_Point));
-               else
-                  Last_Distance  :=
-                    Last_Distance + abs (Working.Curve_Point_Sets (Segment - 1).Outgoing (I) - Last_Point);
-                  Distance_To_Go := Distance - Last_Distance;
-                  Last_Point     := Working.Curve_Point_Sets (Segment - 1).Outgoing (I);
-                  exit when I = Working.Curve_Point_Sets (Segment - 1).Outgoing'Last;
-                  I := I + 1;
-               end if;
-            end loop;
-
-            In_Second_Curve := True;
-            I               := Working.Curve_Point_Sets (Segment).Incoming'First;
-         end if;
-
-         loop
-            if abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point) >= Distance_To_Go and
-              abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point) /= 0.0 * mm
-            then
-               return
-                 Last_Point +
-                 (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point) *
-                   (Distance_To_Go / abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point));
-            else
-               Last_Distance  := Last_Distance + abs (Working.Curve_Point_Sets (Segment).Incoming (I) - Last_Point);
-               Distance_To_Go := Distance - Last_Distance;
-               Last_Point     := Working.Curve_Point_Sets (Segment).Incoming (I);
-               exit when I = Working.Curve_Point_Sets (Segment).Incoming'Last;
-               I := I + 1;
-            end if;
-         end loop;
-
-         return Last_Point;
-      end Walk_To;
-   end Curve_Walker;
-
    package Running_Average is
       procedure Reset (Pos : Scaled_Position);
       procedure Push (Pos : Scaled_Position);
@@ -121,29 +42,63 @@ package body Motion.Executor is
       end Get;
    end Running_Average;
 
+   function Compute_Bezier_Point (Bez : Bezier; T : Dimensionless) return Scaled_Position is
+      Bez_2 : Bezier := Bez;
+   begin
+      for J in reverse Bez_2'First .. Bez_2'Last - 1 loop
+         for I in Bez_2'First .. J loop
+            Bez_2 (I) := Bez_2 (I) + (Bez_2 (I + 1) - Bez_2 (I)) * T;
+         end loop;
+      end loop;
+
+      return Bez_2 (Bez_2'First);
+   end Compute_Bezier_Point;
+
    procedure Logger is
       Current_Time : Time := 0.0 * s;
    begin
       for I in Working.Feedrate_Profiles'Range loop
-         Curve_Walker.Reset_For_Segment (I);
-         while Current_Time < Total_Time (Working.Feedrate_Profiles (I)) loop
-            declare
-               Distance : Length          :=
-                 Distance_At_Time
-                   (Working.Feedrate_Profiles (I),
-                    Current_Time,
-                    Working.Segment_Limits (I).Crackle_Max,
-                    Working.Corner_Velocity_Limits (I - 1));
-               Point    : Scaled_Position := Curve_Walker.Walk_To (Distance);
-            begin
-               -- Running_Average.Push (Point);
-               -- Put_Line (Running_Average.Get (X_Axis)'Image & "," & Running_Average.Get (Y_Axis)'Image);
-               Put_Line (Point (X_Axis)'Image & "," & Point (Y_Axis)'Image);
-            end;
-            Current_Time := Current_Time + Logger_Interpolation_Time;
-         end loop;
+         declare
+            Start_Curve_Half_Distance : constant Length := Distance_At_T (Working.Beziers (I - 1), 0.5);
+            End_Curve_Half_Distance   : constant Length := Distance_At_T (Working.Beziers (I), 0.5);
+            Mid_Distance              : constant Length :=
+              abs (Working.Beziers (I) (Bezier_Index'First) - Working.Beziers (I - 1) (Bezier_Index'Last));
+         begin
+            while Current_Time < Total_Time (Working.Feedrate_Profiles (I)) loop
+               declare
+                  Distance : Length :=
+                    Distance_At_Time
+                      (Working.Feedrate_Profiles (I),
+                       Current_Time,
+                       Working.Segment_Limits (I).Crackle_Max,
+                       Working.Corner_Velocity_Limits (I - 1));
+                  Point    : Scaled_Position;
+               begin
+                  if Distance < Start_Curve_Half_Distance then
+                     Point :=
+                       Compute_Bezier_Point
+                         (Working.Beziers (I - 1),
+                          T_At_Distance (Working.Beziers (I - 1), Distance + Start_Curve_Half_Distance));
+                  elsif Distance < Start_Curve_Half_Distance + Mid_Distance then
+                     Point :=
+                       Working.Beziers (I - 1) (Bezier_Index'Last) +
+                       (Working.Beziers (I) (Bezier_Index'First) - Working.Beziers (I - 1) (Bezier_Index'Last)) *
+                         ((Distance - Start_Curve_Half_Distance) / Mid_Distance);
+                  else
+                     Point :=
+                       Compute_Bezier_Point
+                         (Working.Beziers (I),
+                          T_At_Distance (Working.Beziers (I), Distance - Start_Curve_Half_Distance - Mid_Distance));
+                  end if;
+                  -- Running_Average.Push (Point);
+                  -- Put_Line (Running_Average.Get (X_Axis)'Image & "," & Running_Average.Get (Y_Axis)'Image);
+                  Put_Line (Point (X_Axis)'Image & "," & Point (Y_Axis)'Image);
+               end;
+               Current_Time := Current_Time + Logger_Interpolation_Time;
+            end loop;
 
-         Current_Time := Current_Time - Total_Time (Working.Feedrate_Profiles (I));
+            Current_Time := Current_Time - Total_Time (Working.Feedrate_Profiles (I));
+         end;
       end loop;
    end Logger;
 
