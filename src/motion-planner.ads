@@ -1,5 +1,6 @@
 with Ada.Containers.Synchronized_Queue_Interfaces;
 with Ada.Containers.Bounded_Synchronized_Queues;
+with Motion.PH_Beziers; use Motion.PH_Beziers;
 
 private package Motion.Planner is
 
@@ -20,7 +21,7 @@ private package Motion.Planner is
 
    Command_Queue : Command_Queues.Queue;
 
-   type Corners_Index is range 0 .. 2_000;
+   type Corners_Index is range 0 .. 50_000;
 
    --  Preprocessor
    Preprocessor_Minimum_Move_Distance : constant Length := 0.001 * mm;
@@ -32,12 +33,7 @@ private package Motion.Planner is
    Corner_Blender_Max_Computational_Error      : constant Length  := 0.001 * mm;
    Corner_Blender_Max_Secondary_Angle_To_Blend : constant Angle   := 89.5 * deg;
 
-   type Bezier_Index is range 0 .. 15;
-   type Bezier is array (Bezier_Index) of Scaled_Position;
-   type Block_Beziers is array (Corners_Index range <>) of Bezier;
-
-   function Distance_At_T (Bez : Bezier; T : Dimensionless) return Length;
-   function T_At_Distance (Bez : Bezier; Distance : Length) return Dimensionless;
+   type Block_Beziers is array (Corners_Index range <>) of PH_Bezier;
 
    type Block_Inverse_Curvatures is array (Corners_Index range <>) of Length;
    type Block_Midpoints is array (Corners_Index range <>) of Scaled_Position;
@@ -67,10 +63,8 @@ private package Motion.Planner is
 
       --  Corner_Blender
       Beziers                     : Block_Beziers (1 .. N_Corners);
-      Midpoints                   : Block_Midpoints (1 .. N_Corners);
       Shifted_Corners             : Block_Shifted_Corners (1 .. N_Corners);
       Shifted_Corner_Error_Limits : Block_Shifted_Corner_Error_Limits (1 .. N_Corners);
-      Inverse_Curvatures          : Block_Inverse_Curvatures (1 .. N_Corners);
 
       --  Kinematic_Limiter
       Corner_Velocity_Limits : Block_Corner_Velocity_Limits (1 .. N_Corners);
@@ -83,7 +77,7 @@ private package Motion.Planner is
    --  small blocks may be queued if the planner is flushed often.
    package Execution_Block_Queues_Interface is new Ada.Containers.Synchronized_Queue_Interfaces (Execution_Block);
    package Execution_Block_Queues is new Ada.Containers.Bounded_Synchronized_Queues
-     (Execution_Block_Queues_Interface, 1);
+     (Execution_Block_Queues_Interface, 3);
    use Execution_Block_Queues;
 
    Execution_Block_Queue : Execution_Block_Queues.Queue;

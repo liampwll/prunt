@@ -17,61 +17,10 @@ package body Motion.Planner is
    function Curve_Corner_Distance (Start, Finish : Corners_Index) return Length is
    begin
       return
-        Distance_At_T (Working.Beziers (Start), 0.5) + Distance_At_T (Working.Beziers (Finish), 0.5) +
-        abs (Working.Beziers (Start) (Bezier_Index'Last) - Working.Beziers (Finish) (Bezier_Index'First));
+        Distance_At_T (Working.Beziers (Start), 0.5) + Distance_At_T (Working.Beziers (Finish), 1.0) -
+        Distance_At_T (Working.Beziers (Finish), 0.5) +
+        abs (Point_At_T (Working.Beziers (Start), 1.0) - Point_At_T (Working.Beziers (Finish), 0.0));
    end Curve_Corner_Distance;
-
-   function Distance_At_T (Bez : Bezier; T : Dimensionless) return Length is
-      L : constant Length := abs (Bez (0) - Bez (1));
-      B : constant Length := abs (Bez (4) - Bez (5));
-   begin
-      if L = 0.0 then
-         return 0.0 * mm;
-      else
-         return
-           T *
-           (23_940.0 * L**2 + 9_815_520.0 * T**14 * (-B**2 + L**2) + 73_616_400.0 * T**13 * (B**2 - L**2) +
-            233_873_640.0 * T**12 * (-B**2 + L**2) + 403_663_260.0 * T**11 * (B**2 - L**2) +
-            400_071_672.0 * T**10 * (-B**2 + L**2) + 216_432_216.0 * T**9 * (B**2 - L**2) +
-            50_100_050.0 * T**8 * (-B**2 + L**2) + 920_205.0 * T**7 * (-B**2 + L**2) +
-            3_680_820.0 * T**6 * (B**2 - L**2) + 5_153_148.0 * T**5 * (-B**2 + L**2) +
-            2_576_574.0 * T**4 * (B**2 - L**2)) /
-           (1_596.0 * L);
-      end if;
-   end Distance_At_T;
-
-   function T_At_Distance (Bez : Bezier; Distance : Length) return Dimensionless is
-      Result : Dimensionless;
-      Lower  : Dimensionless := 0.0;
-      Upper  : Dimensionless := 1.0;
-
-      type Casted_Dimensionless is mod 2**64;
-      function Cast_Dimensionless is new Ada.Unchecked_Conversion (Dimensionless, Casted_Dimensionless);
-      function Cast_Dimensionless is new Ada.Unchecked_Conversion (Casted_Dimensionless, Dimensionless);
-   begin
-      --  This probably breaks when not using IEEE 754 floats or on other weird systems, so try to check for
-      --  that.
-      pragma Assert (Dimensionless'Size = 64);
-      pragma Assert (Casted_Dimensionless'Size = 64);
-      pragma Assert (Cast_Dimensionless (86_400.0) = 4_680_673_776_000_565_248);
-      pragma Assert (Cast_Dimensionless (0.123_45) = 4_593_559_930_647_147_132);
-
-      pragma Assert (Distance <= Distance_At_T (Bez, 1.0));
-
-      loop
-         Result :=
-           Cast_Dimensionless
-             (Cast_Dimensionless (Lower) + (Cast_Dimensionless (Upper) - Cast_Dimensionless (Lower)) / 2);
-         exit when Lower = Result or Upper = Result;
-         if Distance_At_T (Bez, Result) <= Distance then
-            Lower := Result;
-         else
-            Upper := Result;
-         end if;
-      end loop;
-
-      return Result;
-   end T_At_Distance;
 
    procedure Preprocessor is
       Next_Master       : Master_Manager.Master := Master_Manager.Motion_Master;
@@ -166,48 +115,6 @@ package body Motion.Planner is
          end if;
       end Compute_Sine_Secondary_Angle;
 
-      function Compute_Cosine_Secondary_Angle (Start, Corner, Finish : Scaled_Position) return Dimensionless is
-         V1 : constant Scaled_Position_Offset := Corner - Start;
-         V2 : constant Scaled_Position_Offset := Finish - Corner;
-         A  : constant Area                   := Dot (V1, V2);
-         B  : constant Area                   := 2.0 * (abs V1) * (abs V2);
-      begin
-         if 0.5 + A / B < 0.0 then
-            return 0.0;
-         elsif (0.5 + A / B)**(1 / 2) > 1.0 then
-            return 1.0;
-         else
-            return (0.5 + A / B)**(1 / 2);
-         end if;
-      end Compute_Cosine_Secondary_Angle;
-
-      function Compute_Bezier_Base_Length
-        (Start, Corner, Finish : Scaled_Position; Chord_Error_Max : Length) return Length
-      is
-         Sine_Secondary_Angle   : constant Dimensionless := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
-         Cosine_Secondary_Angle : constant Dimensionless := Compute_Cosine_Secondary_Angle (Start, Corner, Finish);
-         Incoming_Length        : constant Length        := abs (Start - Corner);
-         Outgoing_Length        : constant Length        := abs (Finish - Corner);
-
-         Deviation_Limit_Numerator   : constant Length        := Chord_Error_Max * 2.0**14;
-         Deviation_Limit_Denominator : constant Dimensionless :=
-           Sine_Secondary_Angle * (4_072_849.0 / 429.0 + 714.0 + 2.0**14 * 1_225.0 / (858.0 * Cosine_Secondary_Angle));
-         Incoming_Limit              : constant Length        :=
-           (0.49 * 858.0 * Incoming_Length * Cosine_Secondary_Angle) / (5_210.0 * Cosine_Secondary_Angle + 1_225.0);
-         Outgoing_Limit              : constant Length        :=
-           (0.49 * 858.0 * Outgoing_Length * Cosine_Secondary_Angle) / (5_210.0 * Cosine_Secondary_Angle + 1_225.0);
-      begin
-         --  TODO: Do we need a small error margin here?
-         if Deviation_Limit_Denominator = 0.0 then
-            --  Collinear points.
-            return Length'Min (Incoming_Limit, Outgoing_Limit);
-         else
-            return
-              Length'Min
-                (Deviation_Limit_Numerator / Deviation_Limit_Denominator, Length'Min (Incoming_Limit, Outgoing_Limit));
-         end if;
-      end Compute_Bezier_Base_Length;
-
       function Compute_Unit_Bisector (Start, Corner, Finish : Scaled_Position) return Position_Scale is
          A        : constant Scaled_Position_Offset := Start - Corner;
          B        : constant Scaled_Position_Offset := Finish - Corner;
@@ -219,66 +126,6 @@ package body Motion.Planner is
             return Bisector / abs Bisector;
          end if;
       end Compute_Unit_Bisector;
-
-      function Compute_Control_Points (Start, Corner, Finish : Scaled_Position; Chord_Error_Max : Length) return Bezier
-      is
-         Cosine_Secondary_Angle : constant Dimensionless := Compute_Cosine_Secondary_Angle (Start, Corner, Finish);
-         Base_Length : constant Length := Compute_Bezier_Base_Length (Start, Corner, Finish, Chord_Error_Max);
-         Incoming_Unit          : constant Position_Scale         := (Start - Corner) / abs (Start - Corner);
-         Outgoing_Unit          : constant Position_Scale         := (Finish - Corner) / abs (Finish - Corner);
-         M                      : constant Scaled_Position_Offset :=
-           ((Outgoing_Unit - Incoming_Unit) / abs (Outgoing_Unit - Incoming_Unit)) * Base_Length;
-         Result                 : Bezier;
-      begin
-         Result (Result'First)     :=
-           Corner + Incoming_Unit * ((4.0 + 889.0 / 429.0 + 1_225.0 / (858.0 * Cosine_Secondary_Angle)) * Base_Length);
-         Result (Result'First + 1) := Result (Result'First) - Incoming_Unit * Base_Length;
-         Result (Result'First + 2) := Result (Result'First + 1) - Incoming_Unit * Base_Length;
-         Result (Result'First + 3) := Result (Result'First + 2) - Incoming_Unit * Base_Length;
-         Result (Result'First + 4) := Result (Result'First + 3) - Incoming_Unit * Base_Length;
-         Result (Result'First + 5) :=
-           Result (Result'First + 4) + M * (10.0 / 143.0) - Incoming_Unit * ((133.0 / 143.0) * Base_Length);
-         Result (Result'First + 6) :=
-           Result (Result'First + 5) + M * (38.0 / 143.0) - Incoming_Unit * ((105.0 / 143.0) * Base_Length);
-         Result (Result'First + 7) :=
-           Result (Result'First + 6) + M * (254.0 / 429.0) - Incoming_Unit * ((175.0 / 429.0) * Base_Length);
-         Result (Result'First + 8) := Result (Result'First + 7) + M;
-
-         Result (Result'Last)     :=
-           Corner + Outgoing_Unit * ((4.0 + 889.0 / 429.0 + 1_225.0 / (858.0 * Cosine_Secondary_Angle)) * Base_Length);
-         Result (Result'Last - 1) := Result (Result'Last) - Outgoing_Unit * Base_Length;
-         Result (Result'Last - 2) := Result (Result'Last - 1) - Outgoing_Unit * Base_Length;
-         Result (Result'Last - 3) := Result (Result'Last - 2) - Outgoing_Unit * Base_Length;
-         Result (Result'Last - 4) := Result (Result'Last - 3) - Outgoing_Unit * Base_Length;
-         Result (Result'Last - 5) :=
-           Result (Result'Last - 4) - M * (10.0 / 143.0) - Outgoing_Unit * ((133.0 / 143.0) * Base_Length);
-         Result (Result'Last - 6) :=
-           Result (Result'Last - 5) - M * (38.0 / 143.0) - Outgoing_Unit * ((105.0 / 143.0) * Base_Length);
-         Result (Result'Last - 7) :=
-           Result (Result'Last - 6) - M * (254.0 / 429.0) - Outgoing_Unit * ((175.0 / 429.0) * Base_Length);
-         Result (Result'Last - 8) := Result (Result'Last - 7) - M;
-
-         --  for R of Result loop
-         --     Put_Line (R (X_Axis)'Image & "," & R (Y_Axis)'Image);
-         --  end loop;
-         --  Put_Line ("");
-
-         return Result;
-      end Compute_Control_Points;
-
-      function Compute_Curve_Mid_Point
-        (Start, Corner, Finish : Scaled_Position; Chord_Error_Max : Length) return Scaled_Position
-      is
-         Sine_Secondary_Angle   : constant Dimensionless  := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
-         Cosine_Secondary_Angle : constant Dimensionless  := Compute_Cosine_Secondary_Angle (Start, Corner, Finish);
-         Base_Length : constant Length         := Compute_Bezier_Base_Length (Start, Corner, Finish, Chord_Error_Max);
-         Bisector               : constant Position_Scale := Compute_Unit_Bisector (Start, Corner, Finish);
-         Deviation              : constant Length         :=
-           (Sine_Secondary_Angle / 2.0**14) * Base_Length *
-           ((397.0 / 429.0) + 10_207.0 + (2.0**14 * 1_225.0) / (858.8 * Cosine_Secondary_Angle));
-      begin
-         return Corner + Bisector * Deviation;
-      end Compute_Curve_Mid_Point;
 
       Last_Comp_Error : Length := 0.0 * mm;
    begin
@@ -293,86 +140,62 @@ package body Motion.Planner is
       Working.Shifted_Corner_Error_Limits (Working.Shifted_Corner_Error_Limits'First) := 0.0 * mm;
       Working.Shifted_Corner_Error_Limits (Working.Shifted_Corner_Error_Limits'Last)  := 0.0 * mm;
 
-      Working.Midpoints (Working.Midpoints'First) := Working.Corners (Working.Corners'First);
-      Working.Midpoints (Working.Midpoints'Last)  := Working.Corners (Working.Corners'Last);
+      Working.Beziers (Working.Beziers'First) :=
+        Create_Bezier
+          (Working.Corners (Working.Beziers'First),
+           Working.Corners (Working.Beziers'First),
+           Working.Corners (Working.Beziers'First),
+           0.0 * mm);
+      Working.Beziers (Working.Beziers'Last)  :=
+        Create_Bezier
+          (Working.Corners (Working.Beziers'Last),
+           Working.Corners (Working.Beziers'Last),
+           Working.Corners (Working.Beziers'Last),
+           0.0 * mm);
 
-      if Corner_Blender_Do_Shifting then
-         loop
-            Last_Comp_Error := 0.0 * mm;
+      loop
+         Last_Comp_Error := 0.0 * mm;
 
-            for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
-               declare
-                  Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
-                  Corner : constant Scaled_Position := Working.Shifted_Corners (I);
-                  Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
-               begin
-                  if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) <
-                    Compute_Sine_Secondary_Angle
-                      (Working.Corners (I - 1), Working.Corners (I), Working.Corners (I + 1))
-                  then
-                     Working.Midpoints (I) := Working.Corners (I);
-                  else
-                     Working.Midpoints (I) :=
-                       Compute_Curve_Mid_Point (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I));
-                     Last_Comp_Error       := Length'Max (@, abs (Working.Midpoints (I) - Working.Corners (I)));
-                  end if;
-               end;
-            end loop;
-
-            exit when Last_Comp_Error <= Corner_Blender_Max_Computational_Error;
-
-            for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
-               Working.Shifted_Corners (I) := @ + (Working.Corners (I) - Working.Midpoints (I));
-            end loop;
-
-            for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
-               declare
-                  Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
-                  Corner : constant Scaled_Position := Working.Shifted_Corners (I);
-                  Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
-               begin
-                  Working.Shifted_Corner_Error_Limits (I) :=
-                    abs Dot
-                      (Working.Corners (I) - Working.Shifted_Corners (I),
-                       Compute_Unit_Bisector (Start, Corner, Finish));
-               end;
-            end loop;
-         end loop;
-      end if;
-
-      for I in Working.Beziers'First + 1 .. Working.Beziers'Last - 1 loop
-         declare
-            Start   : constant Scaled_Position := Working.Shifted_Corners (I - 1);
-            Corner  : constant Scaled_Position := Working.Shifted_Corners (I);
-            Finish  : constant Scaled_Position := Working.Shifted_Corners (I + 1);
-            Sin_Sec : constant Dimensionless   := Compute_Sine_Secondary_Angle (Start, Corner, Finish);
-         begin
+         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
             if Sin (Corner_Blender_Max_Secondary_Angle_To_Blend) <
               Compute_Sine_Secondary_Angle (Working.Corners (I - 1), Working.Corners (I), Working.Corners (I + 1))
             then
-               Working.Beziers (I)            := [others => Working.Corners (I)];
-               Working.Inverse_Curvatures (I) := 0.0 * mm;
+               Working.Beziers (I) :=
+                 Create_Bezier
+                   (Working.Corners (I - 1),
+                    Working.Corners (I),
+                    Working.Corners (I + 1),
+                    Working.Shifted_Corner_Error_Limits (I));
             else
-               Working.Beziers (I)            :=
-                 Compute_Control_Points (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I));
-               Working.Inverse_Curvatures (I) :=
-                 (12.0 / 7.0) *
-                 Compute_Bezier_Base_Length (Start, Corner, Finish, Working.Shifted_Corner_Error_Limits (I)) /
-                 (Sin_Sec / (1.0 - Sin_Sec**2)**(1 / 2));
+               Working.Beziers (I) :=
+                 Create_Bezier
+                   (Working.Shifted_Corners (I - 1),
+                    Working.Shifted_Corners (I),
+                    Working.Shifted_Corners (I + 1),
+                    Working.Shifted_Corner_Error_Limits (I));
+               Last_Comp_Error     := Length'Max (@, abs (Midpoint (Working.Beziers (I)) - Working.Corners (I)));
             end if;
-         end;
+         end loop;
+
+         exit when not Corner_Blender_Do_Shifting;
+         exit when Last_Comp_Error <= Corner_Blender_Max_Computational_Error;
+
+         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+            Working.Shifted_Corners (I) := @ + (Working.Corners (I) - Midpoint (Working.Beziers (I)));
+         end loop;
+
+         for I in Working.Corners'First + 1 .. Working.Corners'Last - 1 loop
+            declare
+               Start  : constant Scaled_Position := Working.Shifted_Corners (I - 1);
+               Corner : constant Scaled_Position := Working.Shifted_Corners (I);
+               Finish : constant Scaled_Position := Working.Shifted_Corners (I + 1);
+            begin
+               Working.Shifted_Corner_Error_Limits (I) :=
+                 abs Dot
+                   (Working.Corners (I) - Working.Shifted_Corners (I), Compute_Unit_Bisector (Start, Corner, Finish));
+            end;
+         end loop;
       end loop;
-
-      Working.Beziers (Working.Beziers'First) := [others => Working.Corners (Working.Beziers'First)];
-      Working.Beziers (Working.Beziers'Last)  := [others => Working.Corners (Working.Beziers'Last)];
-
-      -- Put_Line
-      --   ("BASE = " &
-      --    Length'Image
-      --      (Compute_Bezier_Base_Length
-      --         (Working.Shifted_Corners (5), Working.Shifted_Corners (6), Working.Shifted_Corners (7),
-      --          Working.Shifted_Corner_Error_Limits (6))));
-      -- Put_Line ("B4B5 = " & Length'Image (abs (Working.Beziers (6) (4) - Working.Beziers (6) (5))));
    end Corner_Blender;
 
    procedure Kinematic_Limiter is
@@ -519,7 +342,7 @@ package body Motion.Planner is
             Limit           : Velocity;
             Optimal_Profile : Feedrate_Profile_Times;
 
-            Inverse_Curvature : constant Length       := Working.Inverse_Curvatures (I);
+            Inverse_Curvature : constant Length       := PH_Beziers.Inverse_Curvature (Working.Beziers (I));
             Velocity_Max      : constant Velocity     :=
               Velocity'Min (Working.Segment_Limits (I).Velocity_Max, Working.Segment_Limits (I + 1).Velocity_Max);
             Acceleration_Max  : constant Acceleration :=
@@ -620,7 +443,7 @@ package body Motion.Planner is
             Lower : Time := 0.0 * s;
             --  A maximum of 24 hours should be more than enough unless you are using Prunt to control a space probe or
             --  a particle accelerator. It is not recommended to install Prunt on space probes or particle
-            -- accelerators.
+            --  accelerators.
             Upper : Time := 86_400.0 * s;
 
             type Casted_Time is mod 2**64;
@@ -774,16 +597,16 @@ package body Motion.Planner is
               Working.Segment_Limits (I).Crackle_Max);
 
          declare
-            Accel_Distance : Length          :=
+            Accel_Distance : Length            :=
               Fast_Distance_At_Max_Time
                 (Working.Feedrate_Profiles (I).Accel,
                  Working.Segment_Limits (I).Crackle_Max,
                  Working.Corner_Velocity_Limits (I - 1));
-            Coast_Velocity : Velocity        := Working.Segment_Limits (I).Velocity_Max;
-            Decel_Distance : Length          :=
+            Coast_Velocity : constant Velocity := Working.Segment_Limits (I).Velocity_Max;
+            Decel_Distance : Length            :=
               Fast_Distance_At_Max_Time
                 (Working.Feedrate_Profiles (I).Decel, -Working.Segment_Limits (I).Crackle_Max, Coast_Velocity);
-            Curve_Distance : constant Length := Curve_Corner_Distance (I - 1, I);
+            Curve_Distance : constant Length   := Curve_Corner_Distance (I - 1, I);
          begin
             if Accel_Distance + Decel_Distance <= Curve_Distance then
                Working.Feedrate_Profiles (I).Coast :=
@@ -795,7 +618,6 @@ package body Motion.Planner is
                   function Cast_Vel is new Ada.Unchecked_Conversion (Velocity, Casted_Vel);
                   function Cast_Vel is new Ada.Unchecked_Conversion (Casted_Vel, Velocity);
                   Upper : Velocity := Working.Segment_Limits (I).Velocity_Max;
-                  -- Lower : Velocity := Working.Corner_Velocity_Limits (I);
                   Lower : Velocity :=
                     Velocity'Max (Working.Corner_Velocity_Limits (I - 1), Working.Corner_Velocity_Limits (I));
                   Mid   : Velocity;

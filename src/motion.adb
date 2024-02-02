@@ -58,7 +58,7 @@ package body Motion is
    begin
       return 8.0 * Times (1) + 4.0 * Times (2) + 2.0 * Times (3) + Times (4);
    end Total_Time;
-   
+
    function Total_Time (Profile : Feedrate_Profile) return Time is
    begin
       return Total_Time (Profile.Accel) + Profile.Coast + Total_Time (Profile.Decel);
